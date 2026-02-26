@@ -1,0 +1,723 @@
+import React, { useEffect, useState } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TextInput, 
+  TouchableOpacity, 
+  ScrollView, 
+  SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+  Modal,
+  FlatList,
+  ActivityIndicator
+} from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { db, auth } from '../../../firebaseConfig'; 
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// Predefined categories for selection
+const CATEGORIES = [
+  'Succulent',
+  'Fern',
+  'Flowering',
+  'Foliage',
+  'Cactus',
+  'Herb',
+  'Tree',
+  'Tropical',
+  'Air Plant',
+  'General'
+];
+
+// Care actions available
+const CARE_ACTIONS = ['Water', 'Feed', 'Clean', 'Mist', 'Prune', 'Repot'];
+
+export default function EditPlantScreen() {
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  
+  const [name, setName] = useState('');
+  const [species, setSpecies] = useState('');
+  const [category, setCategory] = useState('General');
+  const [careActions, setCareActions] = useState<string[]>(['Water']);
+  const [notes, setNotes] = useState('');
+  const [environment, setEnvironment] = useState('Indoor');
+
+  // Watering frequency
+  const [wateringFrequency, setWateringFrequency] = useState(3);
+  const [frequencyModalVisible, setFrequencyModalVisible] = useState(false);
+  const frequencyOptions = [1, 2, 3, 5, 7, 10, 14, 21, 30];
+
+  // Reminder time (hour & minute)
+  const [reminderHour, setReminderHour] = useState(9);
+  const [reminderMinute, setReminderMinute] = useState(0);
+  const [hourModalVisible, setHourModalVisible] = useState(false);
+  const [minuteModalVisible, setMinuteModalVisible] = useState(false);
+  const hourOptions = Array.from({ length: 24 }, (_, i) => i);
+  const minuteOptions = Array.from({ length: 60 }, (_, i) => i);
+  
+  // Category modal state
+  const [categoryModalVisible, setCategoryModalVisible] = useState(false);
+
+  // 1. Fetch existing plant data
+  useEffect(() => {
+    const fetchPlant = async () => {
+      if (!id) return;
+      
+      try {
+        const docRef = doc(db, "plants", id);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setName(data.name || '');
+          setSpecies(data.species || '');
+          setCategory(data.category || 'General');
+          setCareActions(data.tasks || ['Water']);
+          setNotes(data.notes || '');
+          setEnvironment(data.environment || 'Indoor');
+          setWateringFrequency(data.wateringFrequency || 3);
+          setReminderHour(data.reminderHour ?? 9);
+          setReminderMinute(data.reminderMinute ?? 0);
+        } else {
+          Alert.alert("Error", "Plant not found.");
+          router.back();
+        }
+      } catch (error) {
+        console.error("Error fetching plant:", error);
+        Alert.alert("Error", "Could not load plant data.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPlant();
+  }, [id]);
+
+  // 2. Handle Update
+  const handleUpdate = async () => {
+    if (!name.trim()) {
+      Alert.alert("Required", "Plant name is required");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const docRef = doc(db, "plants", id);
+      
+      const updateData = {
+        name: name.trim(),
+        species: species.trim() || '',
+        category,
+        tasks: careActions,
+        wateringFrequency,
+        reminderHour,
+        reminderMinute,
+        notes: notes.trim() || '',
+        environment,
+      };
+
+      await updateDoc(docRef, updateData);
+      Alert.alert("Success", "Plant updated successfully!", [
+        { text: "OK", onPress: () => router.back() }
+      ]);
+    } catch (error) {
+      console.error("Error updating plant:", error);
+      Alert.alert("Error", "Could not save changes.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleAction = (action: string) => {
+    setCareActions(prev => 
+      prev.includes(action) ? prev.filter(a => a !== action) : [...prev, action]
+    );
+  };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#2E7D5E" />
+          <Text style={styles.loadingText}>Loading plant data...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        style={{ flex: 1 }}
+      >
+        {/* Header with gradient */}
+        <LinearGradient
+          colors={['#1B4D3E', '#0F2F26']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.header}
+        >
+          <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
+            <Ionicons name="close" size={28} color="#FFFFFF" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Edit Plant</Text>
+          <TouchableOpacity 
+            onPress={handleUpdate} 
+            style={styles.headerButton}
+            disabled={saving}
+          >
+            <LinearGradient
+              colors={saving ? ['#94A3B8', '#64748B'] : ['#2E7D5E', '#1B4D3E']}
+              style={styles.saveButton}
+            >
+              <Text style={styles.saveButtonText}>
+                {saving ? 'Saving...' : 'Save'}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </LinearGradient>
+
+        <ScrollView 
+          style={styles.form} 
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+        >
+          {/* Reminder Time Card (Hour & Minute) */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Reminder Time</Text>
+            <Text style={styles.cardSubtitle}>What time should we remind you to water?</Text>
+            
+            {/* Hour picker */}
+            <TouchableOpacity
+              style={[styles.inputWrapper, { marginBottom: 8 }]}
+              onPress={() => setHourModalVisible(true)}
+            >
+              <Ionicons name="time-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
+              <Text style={[styles.textInput, styles.pickerText]}>
+                {reminderHour.toString().padStart(2, '0')} : {reminderMinute.toString().padStart(2, '0')}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#94A3B8" />
+            </TouchableOpacity>
+
+            {/* Minute picker */}
+            <TouchableOpacity
+              style={styles.inputWrapper}
+              onPress={() => setMinuteModalVisible(true)}
+            >
+              <Ionicons name="time-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
+              <Text style={[styles.textInput, styles.pickerText]}>
+                {reminderMinute.toString().padStart(2, '0')} minutes
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#94A3B8" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Basic Info Card */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Basic Information</Text>
+            
+            <View style={styles.inputGroup}>
+              <Text style={styles.fieldLabel}>PLANT NAME <Text style={styles.required}>*</Text></Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="leaf-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
+                <TextInput 
+                  style={styles.textInput} 
+                  placeholder="e.g. Snake Plant" 
+                  placeholderTextColor="#94A3B8"
+                  value={name} 
+                  onChangeText={setName} 
+                />
+              </View>
+            </View>
+            
+            <View style={styles.inputGroup}>
+              <Text style={styles.fieldLabel}>SPECIES</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="fitness-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
+                <TextInput 
+                  style={styles.textInput} 
+                  placeholder="e.g. Sansevieria" 
+                  placeholderTextColor="#94A3B8"
+                  value={species} 
+                  onChangeText={setSpecies} 
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.fieldLabel}>CATEGORY</Text>
+              <TouchableOpacity 
+                style={styles.inputWrapper} 
+                onPress={() => setCategoryModalVisible(true)}
+              >
+                <Ionicons name="apps-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
+                <Text style={[styles.textInput, styles.pickerText]}>{category}</Text>
+                <Ionicons name="chevron-down" size={20} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Care Actions Card */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Care Actions</Text>
+            <Text style={styles.cardSubtitle}>Tap to select tasks you track</Text>
+            
+            <View style={styles.chipGrid}>
+              {CARE_ACTIONS.map(task => (
+                <TouchableOpacity 
+                  key={task} 
+                  style={[styles.chip, careActions.includes(task) && styles.chipActive]}
+                  onPress={() => toggleAction(task)}
+                >
+                  <Ionicons 
+                    name={task === 'Water' ? 'water' : 'leaf-outline'} 
+                    size={16} 
+                    color={careActions.includes(task) ? '#FFFFFF' : '#64748B'} 
+                  />
+                  <Text style={[styles.chipText, careActions.includes(task) && styles.chipTextActive]}>
+                    {task}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Environment Card */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Environment</Text>
+            <View style={styles.environmentRow}>
+              <TouchableOpacity 
+                style={[styles.environmentOption, environment === 'Indoor' && styles.environmentOptionActive]}
+                onPress={() => setEnvironment('Indoor')}
+              >
+                <Ionicons 
+                  name="home-outline" 
+                  size={24} 
+                  color={environment === 'Indoor' ? '#2E7D5E' : '#64748B'} 
+                />
+                <Text style={[styles.environmentText, environment === 'Indoor' && styles.environmentTextActive]}>
+                  Indoor
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.environmentOption, environment === 'Outdoor' && styles.environmentOptionActive]}
+                onPress={() => setEnvironment('Outdoor')}
+              >
+                <Ionicons 
+                  name="sunny-outline" 
+                  size={24} 
+                  color={environment === 'Outdoor' ? '#2E7D5E' : '#64748B'} 
+                />
+                <Text style={[styles.environmentText, environment === 'Outdoor' && styles.environmentTextActive]}>
+                  Outdoor
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Watering Schedule Card */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Watering Schedule</Text>
+            <Text style={styles.cardSubtitle}>How often should this plant be watered?</Text>
+            
+            <TouchableOpacity
+              style={styles.inputWrapper}
+              onPress={() => setFrequencyModalVisible(true)}
+            >
+              <Ionicons name="calendar-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
+              <Text style={[styles.textInput, styles.pickerText]}>
+                Every {wateringFrequency} day{wateringFrequency > 1 ? 's' : ''}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color="#94A3B8" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Notes Card */}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Notes</Text>
+            <View style={styles.inputGroup}>
+              <View style={[styles.inputWrapper, styles.textAreaWrapper]}>
+                <TextInput 
+                  style={[styles.textInput, styles.textArea]} 
+                  placeholder="Add care tips, reminders, or notes..." 
+                  placeholderTextColor="#94A3B8"
+                  multiline
+                  numberOfLines={4}
+                  value={notes}
+                  onChangeText={setNotes}
+                />
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+
+        {/* Hour Selection Modal */}
+        <Modal
+          visible={hourModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setHourModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>Select Hour</Text>
+              <FlatList
+                data={hourOptions}
+                keyExtractor={(item) => item.toString()}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.categoryItem}
+                    onPress={() => {
+                      setReminderHour(item);
+                      setHourModalVisible(false);
+                    }}
+                  >
+                    <Text style={styles.categoryItemText}>
+                      {item.toString().padStart(2, '0')}:00
+                    </Text>
+                    {reminderHour === item && (
+                      <Ionicons name="checkmark-circle" size={24} color="#2E7D5E" />
+                    )}
+                  </TouchableOpacity>
+                )}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+              />
+            </View>
+          </View>
+        </Modal>
+
+        {/* Minute Selection Modal */}
+        <Modal
+          visible={minuteModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setMinuteModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>Select Minute</Text>
+              <FlatList
+                data={minuteOptions}
+                keyExtractor={(item) => item.toString()}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.categoryItem}
+                    onPress={() => {
+                      setReminderMinute(item);
+                      setMinuteModalVisible(false);
+                    }}
+                  >
+                    <Text style={styles.categoryItemText}>
+                      {item.toString().padStart(2, '0')}
+                    </Text>
+                    {reminderMinute === item && (
+                      <Ionicons name="checkmark-circle" size={24} color="#2E7D5E" />
+                    )}
+                  </TouchableOpacity>
+                )}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+              />
+            </View>
+          </View>
+        </Modal>
+
+        {/* Frequency Selection Modal */}
+        <Modal visible={frequencyModalVisible} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>Watering Frequency</Text>
+              <FlatList
+                data={frequencyOptions}
+                keyExtractor={(item) => item.toString()}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.categoryItem}
+                    onPress={() => {
+                      setWateringFrequency(item);
+                      setFrequencyModalVisible(false);
+                    }}
+                  >
+                    <Text style={styles.categoryItemText}>
+                      Every {item} day{item > 1 ? 's' : ''}
+                    </Text>
+                    {wateringFrequency === item && (
+                      <Ionicons name="checkmark-circle" size={24} color="#2E7D5E" />
+                    )}
+                  </TouchableOpacity>
+                )}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+              />
+            </View>
+          </View>
+        </Modal>
+
+        {/* Category Selection Modal */}
+        <Modal
+          visible={categoryModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setCategoryModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>Select Category</Text>
+              
+              <FlatList
+                data={CATEGORIES}
+                keyExtractor={(item) => item}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.categoryItem}
+                    onPress={() => {
+                      setCategory(item);
+                      setCategoryModalVisible(false);
+                    }}
+                  >
+                    <Text style={styles.categoryItemText}>{item}</Text>
+                    {category === item && (
+                      <Ionicons name="checkmark-circle" size={24} color="#2E7D5E" />
+                    )}
+                  </TouchableOpacity>
+                )}
+                ItemSeparatorComponent={() => <View style={styles.separator} />}
+              />
+            </View>
+          </View>
+        </Modal>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F5F7FA',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: '#64748B',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
+  },
+  headerButton: {
+    width: 48,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  saveButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 100,
+  },
+  saveButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 1,
+  },
+  form: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 4,
+  },
+  cardSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 16,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748B',
+    marginBottom: 8,
+    letterSpacing: 0.5,
+  },
+  required: {
+    color: '#DC2626',
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  inputIcon: {
+    marginRight: 8,
+  },
+  textInput: {
+    flex: 1,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: '#1E293B',
+  },
+  pickerText: {
+    color: '#1E293B',
+  },
+  textAreaWrapper: {
+    alignItems: 'flex-start',
+  },
+  textArea: {
+    height: 100,
+    textAlignVertical: 'top',
+  },
+  chipGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -4,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    margin: 4,
+    backgroundColor: '#FFFFFF',
+  },
+  chipActive: {
+    backgroundColor: '#2E7D5E',
+    borderColor: '#2E7D5E',
+  },
+  chipText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#64748B',
+    marginLeft: 6,
+  },
+  chipTextActive: {
+    color: '#FFFFFF',
+  },
+  environmentRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  environmentOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    gap: 8,
+  },
+  environmentOptionActive: {
+    borderColor: '#2E7D5E',
+    backgroundColor: '#E8F5E9',
+  },
+  environmentText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#64748B',
+  },
+  environmentTextActive: {
+    color: '#2E7D5E',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    padding: 24,
+    maxHeight: '80%',
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  categoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+  },
+  categoryItemText: {
+    fontSize: 16,
+    color: '#1E293B',
+  },
+  separator: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+  },
+});
