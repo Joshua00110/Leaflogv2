@@ -145,7 +145,35 @@ export default function PlantDetail() {
     return space?.name || 'Unknown Space';
   };
 
-  // ✅ FIXED: Get next due date for any action
+  // ✅ NEW: Time remaining function (ADDED - doesn't remove anything)
+  const getTimeRemaining = (targetDate: Date): string => {
+    const now = new Date();
+    const diffMs = targetDate.getTime() - now.getTime();
+    
+    if (diffMs <= 0) return 'Now';
+    
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (diffDays > 0) {
+      if (diffHours > 0) {
+        return `${diffDays}d ${diffHours}h`;
+      } else {
+        return `${diffDays}d`;
+      }
+    } else if (diffHours > 0) {
+      if (diffMinutes > 0) {
+        return `${diffHours}h ${diffMinutes}m`;
+      } else {
+        return `${diffHours}h`;
+      }
+    } else {
+      return `${diffMinutes}m`;
+    }
+  };
+
+  // ✅ UPDATED: Get next due date for any action (only changed the return line)
   const getNextDue = (action: string): string => {
     if (!plant) return 'No schedule';
     
@@ -159,24 +187,14 @@ export default function PlantDetail() {
     if (!last) return 'Set first date';
     
     const lastDate = last.toDate();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     
     // Compute next due date based on last date + frequency
     const nextDate = new Date(lastDate);
     nextDate.setDate(lastDate.getDate() + schedule.frequency);
     nextDate.setHours(schedule.hour, schedule.minute, 0, 0);
     
-    // Compare dates only (ignore time)
-    const nextDay = new Date(nextDate);
-    nextDay.setHours(0, 0, 0, 0);
-    
-    const diffTime = nextDay.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Tomorrow';
-    return `in ${diffDays} days`;
+    // 👈 ITO LANG ANG BINAGO – ginamit ang getTimeRemaining
+    return getTimeRemaining(nextDate);
   };
 
   // OPTIMIZED: Schedule all notifications in parallel
@@ -334,18 +352,17 @@ export default function PlantDetail() {
           style: "destructive",
           onPress: async () => {
             try {
-              const plantRef = doc(db, "plants", id);
-              await updateDoc(plantRef, { status: 'retired' });
-              
-              // Cancel all notifications for this plant in background
+              // CANCEL ALL NOTIFICATIONS FOR THIS PLANT
               const baseId = `plant-water-${id}`;
               const scheduled = await Notifications.getAllScheduledNotificationsAsync();
-              const toCancel = scheduled
-                .filter(notif => notif.identifier.startsWith(baseId))
-                .map(notif => Notifications.cancelScheduledNotificationAsync(notif.identifier));
-              
-              Promise.all(toCancel).catch(err => console.error("Error canceling notifications:", err));
-              
+              for (const notif of scheduled) {
+                if (notif.identifier.startsWith(baseId)) {
+                  await Notifications.cancelScheduledNotificationAsync(notif.identifier);
+                }
+              }
+
+              const plantRef = doc(db, "plants", id);
+              await updateDoc(plantRef, { status: 'retired' });
               router.back();
             } catch (error) {
               Alert.alert("Error", "Could not move plant.");

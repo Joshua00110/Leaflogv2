@@ -19,10 +19,14 @@ interface Plant {
   name: string;
   spaceId?: string;
   tasks?: string[];
-  schedules?: Record<string, ActionSchedule>;  // added
+  schedules?: Record<string, ActionSchedule>;
   lastWatered?: Timestamp;
+  lastFeed?: Timestamp;
+  lastMist?: Timestamp;
+  lastRotate?: Timestamp;
+  lastClean?: Timestamp;
   nextWateringDate?: Timestamp;
-  wateringFrequency?: number;  // legacy
+  wateringFrequency?: number;
   createdAt?: Timestamp;
   reminderHour?: number;
   reminderMinute?: number;
@@ -33,6 +37,16 @@ interface Space {
   id: string;
   name: string;
 }
+
+// Add ACTION_CONFIG for consistent icon mapping
+const ACTION_CONFIG: Record<string, { icon: string; color: string; label: string; field: keyof Plant }> = {
+  Water: { icon: 'water', color: '#2E7D5E', label: 'Water', field: 'lastWatered' },
+  Feed: { icon: 'nutrition-outline', color: '#5C6BC0', label: 'Feed', field: 'lastFeed' },
+  Mist: { icon: 'cloud-outline', color: '#4A90E2', label: 'Mist', field: 'lastMist' },
+  Prune: { icon: 'cut-outline', color: '#F59E0B', label: 'Prune', field: 'lastRotate' },
+  Rotate: { icon: 'refresh-outline', color: '#EC4899', label: 'Rotate', field: 'lastRotate' },
+  Clean: { icon: 'brush-outline', color: '#8B5CF6', label: 'Clean', field: 'lastClean' },
+};
 
 export default function PlantsScreen() {
   const [plants, setPlants] = useState<Plant[]>([]);
@@ -45,30 +59,30 @@ export default function PlantsScreen() {
   const [selectedPlant, setSelectedPlant] = useState<Plant | null>(null);
 
   useEffect(() => {
-  const user = auth.currentUser;
-  if (!user) return;
+    const user = auth.currentUser;
+    if (!user) return;
 
-  const spacesQuery = query(collection(db, "spaces"), where("userId", "==", user.uid));
-  const unsubSpaces = onSnapshot(spacesQuery, (snapshot) => {
-    const spaceList = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name } as Space));
-    setSpaces(spaceList);
-  });
+    const spacesQuery = query(collection(db, "spaces"), where("userId", "==", user.uid));
+    const unsubSpaces = onSnapshot(spacesQuery, (snapshot) => {
+      const spaceList = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name } as Space));
+      setSpaces(spaceList);
+    });
 
-  const plantsQuery = query(collection(db, "plants"), where("userId", "==", user.uid));
-  const unsubPlants = onSnapshot(plantsQuery, (snapshot) => {
-    const plantList = snapshot.docs.map(doc => ({ 
-      id: doc.id, 
-      ...doc.data() 
-    } as Plant));
-    const activePlants = plantList.filter(p => !p.status || p.status !== 'retired');
-    setPlants(activePlants);
-  });
-  
-  return () => {
-    unsubSpaces();
-    unsubPlants();
-  };
-}, []);
+    const plantsQuery = query(collection(db, "plants"), where("userId", "==", user.uid));
+    const unsubPlants = onSnapshot(plantsQuery, (snapshot) => {
+      const plantList = snapshot.docs.map(doc => ({ 
+        id: doc.id, 
+        ...doc.data() 
+      } as Plant));
+      const activePlants = plantList.filter(p => !p.status || p.status !== 'retired');
+      setPlants(activePlants);
+    });
+    
+    return () => {
+      unsubSpaces();
+      unsubPlants();
+    };
+  }, []);
 
   // ----- NOTIFICATION HELPER -----
   const scheduleWateringReminder = async (plantId: string, plantName: string, dueDate: Date) => {
@@ -156,6 +170,7 @@ export default function PlantsScreen() {
           style: "destructive",
           onPress: async () => {
             try {
+              // CANCEL ALL NOTIFICATIONS FOR THIS PLANT
               const baseId = `plant-water-${selectedPlant.id}`;
               const scheduled = await Notifications.getAllScheduledNotificationsAsync();
               for (const notif of scheduled) {
@@ -163,10 +178,10 @@ export default function PlantsScreen() {
                   await Notifications.cancelScheduledNotificationAsync(notif.identifier);
                 }
               }
+
               const plantRef = doc(db, "plants", selectedPlant.id);
               await updateDoc(plantRef, { status: 'retired' });
               setMenuVisible(false);
-              Alert.alert("Moved", `${selectedPlant.name} has been moved to retired.`);
             } catch (error) {
               Alert.alert("Error", "Could not move plant.");
               console.error(error);
@@ -181,6 +196,34 @@ export default function PlantsScreen() {
     if (!spaceId) return "No Space";
     const space = spaces.find(s => s.id === spaceId);
     return space?.name || "Unknown Space";
+  };
+
+  // ✅ Time remaining function (already exists)
+  const getTimeRemaining = (targetDate: Date): string => {
+    const now = new Date();
+    const diffMs = targetDate.getTime() - now.getTime();
+    
+    if (diffMs <= 0) return 'Now';
+    
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    
+    if (diffDays > 0) {
+      if (diffHours > 0) {
+        return `${diffDays}d ${diffHours}h`;
+      } else {
+        return `${diffDays}d`;
+      }
+    } else if (diffHours > 0) {
+      if (diffMinutes > 0) {
+        return `${diffHours}h ${diffMinutes}m`;
+      } else {
+        return `${diffHours}h`;
+      }
+    } else {
+      return `${diffMinutes}m`;
+    }
   };
 
   const getRelativeTime = (timestamp?: Timestamp): string => {
@@ -201,12 +244,36 @@ export default function PlantsScreen() {
     return date.toLocaleDateString();
   };
 
-  // ----- NEW: Compute next watering date from schedule and optional lastWatered -----
+  // ✅ UPDATED: Get next due date for any action with time remaining
+  const getNextDueDisplay = (plant: Plant, action: string): string => {
+    const schedule = plant.schedules?.[action];
+    if (!schedule) return 'No schedule';
+    
+    const config = ACTION_CONFIG[action];
+    if (!config) return 'No schedule';
+    
+    const lastField = config.field;
+    const last = lastField ? plant[lastField] as Timestamp : undefined;
+    
+    // If no last date, show "Set first date"
+    if (!last) return 'Set first date';
+    
+    const lastDate = last.toDate();
+    
+    // Compute next due date based on last date + frequency
+    const nextDate = new Date(lastDate);
+    nextDate.setDate(lastDate.getDate() + schedule.frequency);
+    nextDate.setHours(schedule.hour, schedule.minute, 0, 0);
+    
+    // Use getTimeRemaining to show exact time remaining
+    return getTimeRemaining(nextDate);
+  };
+
+  // Keep the original getNextDueDate for filtering
   const getNextDueDate = (plant: Plant): Date | null => {
     const schedule = plant.schedules?.Water;
     if (!schedule) return null;
 
-    // If there's a lastWatered, use it; otherwise use today as base.
     const baseDate = plant.lastWatered ? plant.lastWatered.toDate() : new Date();
     const next = new Date(baseDate);
     next.setDate(baseDate.getDate() + schedule.frequency);
@@ -214,7 +281,7 @@ export default function PlantsScreen() {
     return next;
   };
 
-  // ----- Helper to get display string for next watering -----
+  // Keep for backward compatibility
   const getNextWateringDisplay = (plant: Plant): string => {
     const nextDate = getNextDueDate(plant);
     if (!nextDate) return "No schedule";
@@ -228,39 +295,40 @@ export default function PlantsScreen() {
   };
 
   // ----- FILTERING -----
-const getFilteredPlants = () => {
-  let filtered = plants;
+  const getFilteredPlants = () => {
+    let filtered = plants;
 
-  if (searchQuery) {
-    filtered = filtered.filter(plant => 
-      plant.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      getSpaceName(plant.spaceId).toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }
+    if (searchQuery) {
+      filtered = filtered.filter(plant => 
+        plant.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        getSpaceName(plant.spaceId).toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-  if (activeTab === 'Today') {
-    filtered = filtered.filter(plant => {
-      const nextDate = getNextDueDate(plant);
-      if (!nextDate) return false; // Walang schedule, hindi isasama sa Today
-      const nextDay = new Date(nextDate);
-      nextDay.setHours(0, 0, 0, 0);
-      return nextDay <= today;
-    });
-  } else if (activeTab === 'Upcoming') {
-    filtered = filtered.filter(plant => {
-      const nextDate = getNextDueDate(plant);
-      if (!nextDate) return true; // ✅ Walang schedule, isasama sa Upcoming (para makita)
-      const nextDay = new Date(nextDate);
-      nextDay.setHours(0, 0, 0, 0);
-      return nextDay > today;
-    });
-  }
+    if (activeTab === 'Today') {
+      filtered = filtered.filter(plant => {
+        const nextDate = getNextDueDate(plant);
+        if (!nextDate) return false;
+        const nextDay = new Date(nextDate);
+        nextDay.setHours(0, 0, 0, 0);
+        return nextDay <= today;
+      });
+    } else if (activeTab === 'Upcoming') {
+      filtered = filtered.filter(plant => {
+        const nextDate = getNextDueDate(plant);
+        if (!nextDate) return true;
+        const nextDay = new Date(nextDate);
+        nextDay.setHours(0, 0, 0, 0);
+        return nextDay > today;
+      });
+    }
 
-  return filtered;
-};
+    return filtered;
+  };
+
   const getTaskIcon = (task: string, size: number = 16, color: string = "#2E7D5E") => {
     switch(task) {
       case 'Water':
@@ -468,25 +536,25 @@ const getFilteredPlants = () => {
                       )}
                     </View>
 
-                    {plant.schedules?.Water ? (
-                      <View style={styles.taskContainer}>
-                        <View style={[styles.taskBadge, { backgroundColor: '#E8F5E9' }]}>
-                          <Ionicons name="water" size={14} color="#2E7D5E" />
-                          <Text style={[styles.taskText, { color: '#2E7D5E' }]}>
-                            Water: {getNextWateringDisplay(plant)}
-                          </Text>
-                        </View>
-                      </View>
-                    ) : (
-                      <View style={styles.taskContainer}>
-                        <View style={[styles.taskBadge, { backgroundColor: '#F1F5F9' }]}>
-                          <Ionicons name="time-outline" size={14} color="#94A3B8" />
-                          <Text style={[styles.taskText, { color: '#94A3B8' }]}>
-                            Schedule not set
-                          </Text>
-                        </View>
-                      </View>
-                    )}
+                    {/* ✅ UPDATED: Show all scheduled tasks with time remaining like in PlantDetails */}
+                    <View style={styles.tasksScheduleContainer}>
+                      {plant.schedules && Object.entries(plant.schedules).map(([action, schedule]) => {
+                        const config = ACTION_CONFIG[action];
+                        if (!config) return null;
+                        
+                        const lastTimestamp = plant[config.field] as Timestamp | undefined;
+                        const nextDisplay = lastTimestamp ? getNextDueDisplay(plant, action) : 'Set first date';
+                        
+                        return (
+                          <View key={action} style={[styles.taskBadge, { backgroundColor: config.color + '20' }]}>
+                            <Ionicons name={config.icon as any} size={14} color={config.color} />
+                            <Text style={[styles.taskText, { color: config.color }]}>
+                              {config.label}: {nextDisplay}
+                            </Text>
+                          </View>
+                        );
+                      })}
+                    </View>
 
                     <View style={styles.plantMeta}>
                       <View style={styles.metaItem}>
@@ -587,6 +655,7 @@ const getFilteredPlants = () => {
     </SafeAreaView>
   );
 }
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F7FA' },
   scrollContent: { paddingBottom: 100 },
@@ -602,10 +671,25 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, fontWeight: '700', color: '#FFFFFF', letterSpacing: -0.5 },
   archiveButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.15)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, gap: 6 },
   archiveText: { color: '#E7F0E9', fontSize: 14, fontWeight: '500' },
-  statsGrid: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 20, padding: 16, alignItems: 'center' },
-  statBox: { flex: 1, alignItems: 'center' },
+  statsGrid: { 
+  flexDirection: 'row', 
+  backgroundColor: 'rgba(255,255,255,0.1)', 
+  borderRadius: 20, 
+  padding: 16, 
+  alignItems: 'center',
+  justifyContent: 'space-around'
+},
+  statBox: { flex: 1, alignItems: 'center',},
   statNumber: { fontSize: 24, fontWeight: '700', color: '#FFFFFF' },
-  statLabel: { fontSize: 10, color: '#A8C5B5', marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'center' },
+  statLabel: { 
+  fontSize: 11, 
+  color: '#E7F0E9', 
+  marginTop: 4,
+  fontWeight: '400',
+  opacity: 0.9,
+  
+  textAlign: 'center'
+},
   statDivider: { width: 1, height: 30, backgroundColor: 'rgba(255,255,255,0.2)' },
   searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', marginHorizontal: 24, marginTop: -20, marginBottom: 20, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 4 },
   searchInput: { flex: 1, marginLeft: 12, fontSize: 16, color: '#1E293B' },
@@ -636,6 +720,7 @@ const styles = StyleSheet.create({
   tasksRow: { flexDirection: 'row', marginBottom: 8, gap: 8 },
   taskIconWrapper: { width: 24, height: 24, justifyContent: 'center', alignItems: 'center' },
   taskContainer: { marginBottom: 8 },
+  tasksScheduleContainer: { marginTop: 8, gap: 6, marginBottom: 8 },
   taskBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, gap: 4 },
   taskText: { fontSize: 13, fontWeight: '600' },
   plantMeta: { flexDirection: 'row', alignItems: 'center' },

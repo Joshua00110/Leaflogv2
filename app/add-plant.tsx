@@ -157,10 +157,8 @@ export default function AddPlant() {
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Add New Plant</Text>
           <TouchableOpacity onPress={handleSave} style={styles.headerButton}>
-            <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.saveButton}>
-              <Text style={styles.saveButtonText}>Add</Text>
-            </LinearGradient>
-          </TouchableOpacity>
+  <Ionicons name="checkmark-circle" size={32} color="#FFFFFF" />
+</TouchableOpacity>
         </LinearGradient>
 
         <ScrollView style={styles.form} showsVerticalScrollIndicator={false}
