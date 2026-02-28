@@ -38,6 +38,7 @@ interface Space {
 
 interface Plant {
   id: string;
+  lastFeed?: Timestamp;
   name: string;
   status?: string;
   spaceId: string;
@@ -73,9 +74,7 @@ export default function HomeDashboard() {
   const [fertilizeModalVisible, setFertilizeModalVisible] = useState(false);
   const [fertilizeDuePlants, setFertilizeDuePlants] = useState<Plant[]>([]);
   const [selectedFertilizePlants, setSelectedFertilizePlants] = useState<Set<string>>(new Set());
-
-  // Remove season detection - for Philippines only
-  // const getSeason = ... (remove this)
+  const user = auth.currentUser;
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -115,47 +114,33 @@ export default function HomeDashboard() {
     setDuePlants(due);
   }, [plants]);
 
-  // Fertilize due plants - UPDATED for Philippines (no winter)
-useEffect(() => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Fertilize due plants
+  useEffect(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-  const due = plants.filter((p) => {
-    // 1. Exclude retired plants
-    if (p.status === 'retired') return false;
-    
-    // 2. Check if plant has Feed in tasks
-    if (!p.tasks?.includes('Feed')) return false;
-    
-    // 3. Check if there's a schedule for Feed
-    const schedule = p.schedules?.Feed;
-    if (!schedule) return false;
+    const due = plants.filter((p) => {
+      if (p.status === 'retired') return false;
+      if (!p.tasks?.includes('Feed')) return false;
+      const schedule = p.schedules?.Feed;
+      if (!schedule) return false;
 
-    // 4. Get last fertilized date
-    const last = p.lastFertilized;
-    
-    // 5. Calculate base date:
-    //    - If never fertilized, use today as base (para due agad)
-    //    - If may last, use that date
-    const baseDate = last ? last.toDate() : new Date();
-    
-    // 6. Calculate next due date
-    const nextDate = new Date(baseDate);
-    nextDate.setDate(baseDate.getDate() + schedule.frequency);
-    nextDate.setHours(schedule.hour, schedule.minute, 0, 0);
+      const last = p.lastFeed;
+      if (!last) return true;
+      
+      const lastDate = last.toDate();
+      const nextDate = new Date(lastDate);
+      nextDate.setDate(lastDate.getDate() + schedule.frequency);
+      nextDate.setHours(schedule.hour, schedule.minute, 0, 0);
+      
+      const nextDay = new Date(nextDate);
+      nextDay.setHours(0, 0, 0, 0);
+      
+      return nextDay <= today;
+    });
 
-    // 7. Compare dates (ignore time)
-    const nextDay = new Date(nextDate);
-    nextDay.setHours(0, 0, 0, 0);
-    
-    console.log(`Plant ${p.name}: last=${baseDate.toISOString()}, next=${nextDate.toISOString()}, due=${nextDay <= today}`);
-    
-    return nextDay <= today;
-  });
-
-  console.log("Fertilize due plants:", due.length, due);
-  setFertilizeDuePlants(due);
-}, [plants]);
+    setFertilizeDuePlants(due);
+  }, [plants]);
 
   const handleOpenMenu = (space: Space) => {
     setSelectedSpace(space);
@@ -279,11 +264,33 @@ useEffect(() => {
     });
   };
 
-  // UPDATED: Schedule reminder for fertilizing
+  // Check if a plant is thriving (watered on schedule)
+  const isPlantThriving = (plant: Plant): boolean => {
+    if (!plant.lastWatered) return false;
+    
+    const lastWatered = plant.lastWatered.toDate();
+    const today = new Date();
+    const schedule = plant.schedules?.Water;
+    
+    if (!schedule) return false;
+    
+    const daysSinceWatered = Math.floor((today.getTime() - lastWatered.getTime()) / (1000 * 60 * 60 * 24));
+    
+    return daysSinceWatered <= schedule.frequency;
+  };
+
+  // Helper function to get thriving percentage for a specific space
+  const getSpaceThrivingPercentage = (spaceId: string): number => {
+    const spacePlants = plants.filter(p => p.spaceId === spaceId);
+    if (spacePlants.length === 0) return 0;
+    
+    const thrivingInSpace = spacePlants.filter(p => isPlantThriving(p)).length;
+    return Math.round((thrivingInSpace / spacePlants.length) * 100);
+  };
+
   const scheduleActionReminder = async (action: string, plantId: string, plantName: string, dueDate: Date) => {
     const baseId = `plant-${action.toLowerCase()}-${plantId}`;
     
-    // Cancel previous notifications
     const scheduled = await Notifications.getAllScheduledNotificationsAsync();
     for (const notif of scheduled) {
       if (notif.identifier.startsWith(baseId)) {
@@ -310,38 +317,34 @@ useEffect(() => {
     });
   };
 
-  // UPDATED: Fertilize single plant with schedule and notification
- const fertilizeSinglePlant = async (plantId: string) => {
-  try {
-    const plant = plants.find((p) => p.id === plantId);
-    if (!plant) return;
+  const fertilizeSinglePlant = async (plantId: string) => {
+    try {
+      const plant = plants.find((p) => p.id === plantId);
+      if (!plant) return;
 
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
 
-    const plantRef = doc(db, 'plants', plantId);
-    
-    // ✅ Update lastFeed instead of lastFertilized
-    await updateDoc(plantRef, {
-      lastFeed: Timestamp.fromDate(now),
-    });
+      const plantRef = doc(db, 'plants', plantId);
+      
+      await updateDoc(plantRef, {
+        lastFeed: Timestamp.fromDate(now),
+      });
 
-    // Schedule next feed reminder
-    const schedule = plant.schedules?.Feed;
-    if (schedule) {
-      const nextDate = new Date(now);
-      nextDate.setDate(now.getDate() + schedule.frequency);
-      nextDate.setHours(schedule.hour, schedule.minute, 0, 0);
-      await scheduleActionReminder('Feed', plantId, plant.name, nextDate);
+      const schedule = plant.schedules?.Feed;
+      if (schedule) {
+        const nextDate = new Date(now);
+        nextDate.setDate(now.getDate() + schedule.frequency);
+        nextDate.setHours(schedule.hour, schedule.minute, 0, 0);
+        await scheduleActionReminder('Feed', plantId, plant.name, nextDate);
+      }
+
+      Alert.alert('Success', `${plant.name} fertilized!`);
+    } catch (error) {
+      Alert.alert('Error', 'Could not fertilize plant');
     }
+  };
 
-    Alert.alert('Success', `${plant.name} fertilized!`);
-  } catch (error) {
-    Alert.alert('Error', 'Could not fertilize plant');
-  }
-};
-
-  // UPDATED: Batch fertilizing with schedules and notifications
   const logFertilizing = async () => {
     if (selectedFertilizePlants.size === 0) {
       Alert.alert('No plants selected', 'Please select at least one plant.');
@@ -361,7 +364,6 @@ useEffect(() => {
           lastFertilized: Timestamp.fromDate(now),
         });
 
-        // Schedule next fertilizing based on schedule
         const schedule = plant.schedules?.Feed;
         if (schedule) {
           const nextDate = new Date(now);
@@ -399,9 +401,10 @@ useEffect(() => {
               </TouchableOpacity>
             </View>
 
+            {/* Simple Stats - Total Plants and Spaces only */}
             <View style={styles.statsContainer}>
               <View style={styles.statItem}>
-                <Text style={styles.statValue}>{totalPlants}</Text>
+                <Text style={styles.statValue}>{plants.length}</Text>
                 <Text style={styles.statLabel}>Total Plants</Text>
               </View>
               <View style={styles.statDivider} />
@@ -449,50 +452,62 @@ useEffect(() => {
           </TouchableOpacity>
         </View>
 
-        {spaces.map((space) => (
-          <Link key={space.id} href={{ pathname: '/space/[id]', params: { id: space.id, name: space.name } }} asChild>
-            <TouchableOpacity activeOpacity={0.7}>
-              <LinearGradient colors={['#FFFFFF', '#F8FAFC']} style={styles.spaceCard}>
-                <View style={styles.spaceCardContent}>
-                  <View style={[styles.spaceIconLarge, { backgroundColor: getLightConditionColor(space.lightCondition) + '20' }]}>
-                    <Ionicons name="leaf" size={32} color={getLightConditionColor(space.lightCondition)} />
-                  </View>
+        {spaces.map((space) => {
+          // Compute thriving percentage for this space (recomputed on every render)
+          const spacePlants = plants.filter((p) => p.spaceId === space.id);
+          let thrivingPercentage = 0;
+          
+          if (spacePlants.length > 0) {
+            const thrivingInSpace = spacePlants.filter(p => isPlantThriving(p)).length;
+            thrivingPercentage = Math.round((thrivingInSpace / spacePlants.length) * 100);
+          }
 
-                  <View style={styles.spaceDetails}>
-                    <View style={styles.spaceHeader}>
-                      <Text style={styles.spaceName}>{space.name}</Text>
-                      <TouchableOpacity
-                        onPress={() => handleOpenMenu(space)}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                        <Ionicons name="ellipsis-horizontal-circle" size={24} color="#94A3B8" />
-                      </TouchableOpacity>
+          return (
+            <Link key={space.id} href={{ pathname: '/space/[id]', params: { id: space.id, name: space.name } }} asChild>
+              <TouchableOpacity activeOpacity={0.7}>
+                <LinearGradient colors={['#FFFFFF', '#F8FAFC']} style={styles.spaceCard}>
+                  <View style={styles.spaceCardContent}>
+                    <View style={[styles.spaceIconLarge, { backgroundColor: getLightConditionColor(space.lightCondition) + '20' }]}>
+                      <Ionicons name="leaf" size={32} color={getLightConditionColor(space.lightCondition)} />
                     </View>
 
-                    <View style={styles.spaceMeta}>
-                      <View style={[styles.metaItem, { marginRight: 16 }]}>
-                        <Ionicons name="sunny-outline" size={14} color="#64748B" />
-                        <Text style={styles.metaText}>{space.lightCondition}</Text>
+                    <View style={styles.spaceDetails}>
+                      <View style={styles.spaceHeader}>
+                        <Text style={styles.spaceName}>{space.name}</Text>
+                        <TouchableOpacity
+                          onPress={() => handleOpenMenu(space)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                          <Ionicons name="ellipsis-horizontal-circle" size={24} color="#94A3B8" />
+                        </TouchableOpacity>
                       </View>
-                      <View style={styles.metaItem}>
-                        <Ionicons name="leaf-outline" size={14} color="#64748B" />
-                        <Text style={styles.metaText}>
-                          {plants.filter((p) => p.spaceId === space.id).length} plants
+
+                      <View style={styles.spaceMeta}>
+                        <View style={[styles.metaItem, { marginRight: 16 }]}>
+                          <Ionicons name="sunny-outline" size={14} color="#64748B" />
+                          <Text style={styles.metaText}>{space.lightCondition}</Text>
+                        </View>
+                        <View style={styles.metaItem}>
+                          <Ionicons name="leaf-outline" size={14} color="#64748B" />
+                          <Text style={styles.metaText}>{spacePlants.length} plants</Text>
+                        </View>
+                      </View>
+
+                      {/* Progress Bar - updates immediately when plants change */}
+                      <View style={styles.progressContainer}>
+                        <View style={styles.progressBar}>
+                          <View style={[styles.progressFill, { width: `${thrivingPercentage}%` }]} />
+                        </View>
+                        <Text style={[styles.progressText, { marginLeft: 10 }]}>
+                          {thrivingPercentage}% thriving
                         </Text>
                       </View>
                     </View>
-
-                    <View style={styles.progressContainer}>
-                      <View style={styles.progressBar}>
-                        <View style={[styles.progressFill, { width: '65%' }]} />
-                      </View>
-                      <Text style={[styles.progressText, { marginLeft: 10 }]}>65% thriving</Text>
-                    </View>
                   </View>
-                </View>
-              </LinearGradient>
-            </TouchableOpacity>
-          </Link>
-        ))}
+                </LinearGradient>
+              </TouchableOpacity>
+            </Link>
+          );
+        })}
 
         <TouchableOpacity style={styles.retiredSection} onPress={() => router.push('/retired')}>
           <View style={styles.retiredContent}>
@@ -580,7 +595,7 @@ useEffect(() => {
         </Pressable>
       </Modal>
 
-      {/* Fertilize Modal - Updated for Philippines */}
+      {/* Fertilize Modal */}
       <Modal visible={fertilizeModalVisible} transparent animationType="slide">
         <Pressable style={styles.modalOverlay} onPress={() => setFertilizeModalVisible(false)}>
           <View style={styles.modalBackground}>
@@ -684,14 +699,12 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
   },
-  headerContent: {
-    // gap removed – spacing handled manually
-  },
+  headerContent: {},
   headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24, // replaces gap between headerTop and statsContainer
+    marginBottom: 24,
   },
   brandTitle: {
     fontSize: 28,
@@ -730,7 +743,6 @@ const styles = StyleSheet.create({
   actionButton: {
     alignItems: 'center',
     position: 'relative',
-    // gap removed
   },
   actionIcon: {
     width: 56,
@@ -793,14 +805,12 @@ const styles = StyleSheet.create({
   spaceMeta: {
     flexDirection: 'row',
     marginBottom: 12,
-    // gap removed
   },
-  metaItem: { flexDirection: 'row', alignItems: 'center' }, // marginRight applied in JSX
+  metaItem: { flexDirection: 'row', alignItems: 'center' },
   metaText: { fontSize: 13, color: '#64748B' },
   progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    // gap removed
   },
   progressBar: { flex: 1, height: 6, backgroundColor: '#E2E8F0', borderRadius: 3 },
   progressFill: { height: 6, backgroundColor: '#2E7D5E', borderRadius: 3 },
@@ -821,7 +831,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  retiredContent: { flexDirection: 'row', alignItems: 'center' }, // gap removed
+  retiredContent: { flexDirection: 'row', alignItems: 'center' },
   retiredIconContainer: {
     width: 44,
     height: 44,
@@ -840,7 +850,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     padding: 20,
     borderRadius: 16,
-    // gap removed
   },
   tipContent: { flex: 1 },
   tipTitle: { fontSize: 14, fontWeight: '600', color: '#FFE082', marginBottom: 4 },
@@ -917,7 +926,6 @@ const styles = StyleSheet.create({
   actionButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    // gap removed
   },
   waterSingleButton: {
     padding: 6,
@@ -943,7 +951,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 20,
-    // gap removed
   },
   modalButton: { flex: 1, borderRadius: 30, overflow: 'hidden' },
   cancelButton: { backgroundColor: '#F1F5F9', paddingVertical: 14, alignItems: 'center' },
@@ -955,7 +962,6 @@ const styles = StyleSheet.create({
   seasonMessage: {
     alignItems: 'center',
     padding: 30,
-    // gap removed
   },
   messageTitle: { fontSize: 18, fontWeight: '700', color: '#1E293B' },
   messageText: { fontSize: 14, color: '#64748B', textAlign: 'center' },

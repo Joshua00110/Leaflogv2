@@ -1,10 +1,21 @@
-import { Tabs } from 'expo-router';
+import React, { useEffect } from 'react';
+import { Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { View, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import { auth } from '../../firebaseConfig';
 
 export default function TabLayout() {
+  const router = useRouter();
+
+  useEffect(() => {
+    const user = auth.currentUser;
+    if (!user) {
+      router.replace('/auth');
+    }
+  }, []);
+
   return (
     <Tabs
       screenOptions={{

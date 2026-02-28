@@ -8,11 +8,9 @@
     "scheme": "leaflog",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-
     "ios": {
       "supportsTablet": true
     },
-
     "android": {
       "useNextNotificationsApi": true,
       "adaptiveIcon": {
@@ -22,14 +20,13 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.leaflog"
     },
-
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-
     "plugins": [
       "expo-router",
       "expo-notifications",
@@ -47,10 +44,15 @@
       ],
       "expo-font"
     ],
-
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e39b4301-d830-4d8d-a877-6e0090e713d7"
+      }
     }
   }
 }

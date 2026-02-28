@@ -145,20 +145,36 @@ export default function PlantDetail() {
     return space?.name || 'Unknown Space';
   };
 
+  // ✅ FIXED: Get next due date for any action
   const getNextDue = (action: string): string => {
     if (!plant) return 'No schedule';
-    const lastField = ACTION_CONFIG[action]?.field;
-    const last = lastField ? plant[lastField] as Timestamp : undefined;
+    
     const schedule = plant.schedules?.[action];
     if (!schedule) return 'No schedule';
+    
+    const lastField = ACTION_CONFIG[action]?.field;
+    const last = lastField ? plant[lastField] as Timestamp : undefined;
+    
+    // Kung walang last date, ipakita na "Set first date"
     if (!last) return 'Set first date';
+    
     const lastDate = last.toDate();
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    // Compute next due date based on last date + frequency
     const nextDate = new Date(lastDate);
     nextDate.setDate(lastDate.getDate() + schedule.frequency);
     nextDate.setHours(schedule.hour, schedule.minute, 0, 0);
-    const today = new Date();
-    const diffDays = Math.ceil((nextDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    if (diffDays <= 0) return 'Today';
+    
+    // Compare dates only (ignore time)
+    const nextDay = new Date(nextDate);
+    nextDay.setHours(0, 0, 0, 0);
+    
+    const diffTime = nextDay.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return 'Today';
     if (diffDays === 1) return 'Tomorrow';
     return `in ${diffDays} days`;
   };
@@ -259,7 +275,7 @@ export default function PlantDetail() {
       const updateData: any = {};
       
       if (action === 'Water') {
-        const schedule = plant.schedules?.Water || { frequency: 3, hour: 9, minute: 0 };
+        const schedule = plant.schedules?.Water || { frequency: 1, hour: 9, minute: 0 };
         const nextDate = new Date(now);
         nextDate.setDate(now.getDate() + schedule.frequency);
         nextDate.setHours(schedule.hour, schedule.minute, 0, 0);
@@ -267,18 +283,12 @@ export default function PlantDetail() {
         updateData.lastWatered = Timestamp.fromDate(now);
         updateData.nextWateringDate = Timestamp.fromDate(nextDate);
         
-        // Update Firestore first (fast)
+        // Update Firestore
         await updateDoc(plantRef, updateData);
         
-        // Schedule reminder in background (don't await)
+        // Schedule reminder in background
         scheduleActionReminder(action, id, plant.name, nextDate)
           .catch(err => console.error("Background notification error:", err));
-        
-        // Log to history in background
-        logTaskAction(action).catch(err => console.error("Background history error:", err));
-        
-        Alert.alert("Success!", `${config.pastTense} logged.`);
-        return;
         
       } else {
         // For all other actions (Feed, Mist, etc.)
@@ -292,16 +302,15 @@ export default function PlantDetail() {
           nextDate.setDate(now.getDate() + schedule.frequency);
           nextDate.setHours(schedule.hour, schedule.minute, 0, 0);
           
-          // Schedule in background
           scheduleActionReminder(action, id, plant.name, nextDate)
             .catch(err => console.error("Background notification error:", err));
         }
-        
-        // Log to history in background
-        logTaskAction(action).catch(err => console.error("Background history error:", err));
-        
-        Alert.alert("Success!", `${config.pastTense} logged.`);
       }
+      
+      // Log to history in background
+      logTaskAction(action).catch(err => console.error("Background history error:", err));
+      
+      Alert.alert("Success!", `${config.pastTense} logged.`);
       
     } catch (error) {
       console.error(`Error logging ${action}:`, error);
