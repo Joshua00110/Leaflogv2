@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,9 @@ import {
   FlatList,
   Alert,
   Dimensions,
+  Animated,
+  StatusBar,
+  Easing,
 } from 'react-native';
 import { db, auth } from '../../firebaseConfig';
 import {
@@ -25,10 +28,11 @@ import {
 import { Link, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
 
-const { height } = Dimensions.get('window');
+const { height, width } = Dimensions.get('window');
 
 interface Space {
   id: string;
@@ -75,6 +79,111 @@ export default function HomeDashboard() {
   const [fertilizeDuePlants, setFertilizeDuePlants] = useState<Plant[]>([]);
   const [selectedFertilizePlants, setSelectedFertilizePlants] = useState<Set<string>>(new Set());
   const user = auth.currentUser;
+
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(30)).current;
+  const scaleAnim = useRef(new Animated.Value(0.95)).current;
+  const headerFloatAnim = useRef(new Animated.Value(0)).current;
+  const cardAnimations = useRef<{ [key: string]: Animated.Value }>({}).current;
+  const actionButtonScale = useRef(new Animated.Value(1)).current;
+  const fabAnim = useRef(new Animated.Value(0)).current;
+  const modalSlideAnim = useRef(new Animated.Value(height)).current;
+
+  useEffect(() => {
+    // Entrance animation
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.back(1.2)),
+      }),
+      Animated.timing(headerFloatAnim, {
+        toValue: 1,
+        duration: 2000,
+        useNativeDriver: true,
+        easing: Easing.inOut(Easing.sin),
+      }),
+    ]).start();
+
+    // FAB animation
+    Animated.spring(fabAnim, {
+      toValue: 1,
+      friction: 5,
+      tension: 40,
+      useNativeDriver: true,
+      delay: 500,
+    }).start();
+
+    // Pulse animation for action buttons when there are due plants
+    if (duePlants.length > 0 || fertilizeDuePlants.length > 0) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(actionButtonScale, {
+            toValue: 1.05,
+            duration: 800,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+          Animated.timing(actionButtonScale, {
+            toValue: 1,
+            duration: 800,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.ease),
+          }),
+        ])
+      ).start();
+    }
+  }, [duePlants.length, fertilizeDuePlants.length]);
+
+  // Modal animation
+  useEffect(() => {
+    if (waterModalVisible || fertilizeModalVisible || menuVisible) {
+      Animated.spring(modalSlideAnim, {
+        toValue: 0,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(modalSlideAnim, {
+        toValue: height,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [waterModalVisible, fertilizeModalVisible, menuVisible]);
+
+  // Card animations
+  useEffect(() => {
+    spaces.forEach((space, index) => {
+      if (!cardAnimations[space.id]) {
+        cardAnimations[space.id] = new Animated.Value(0);
+        Animated.sequence([
+          Animated.delay(index * 100),
+          Animated.spring(cardAnimations[space.id], {
+            toValue: 1,
+            friction: 8,
+            tension: 40,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+    });
+  }, [spaces]);
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -386,312 +495,382 @@ export default function HomeDashboard() {
     return space?.name || 'Unknown';
   };
 
+  const headerFloat = headerFloatAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -5],
+  });
+
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <LinearGradient colors={['#1B4D3E', '#0F2F26']} style={styles.headerGradient}>
-          <View style={styles.headerContent}>
-            <View style={styles.headerTop}>
-              <View>
-                <Text style={styles.brandTitle}>Leaflog</Text>
-                <Text style={styles.greeting}>Welcome back, plant parent 🌱</Text>
-              </View>
-              <TouchableOpacity style={styles.profileButton}>
-                <Ionicons name="person-circle-outline" size={40} color="#E7F0E9" />
-              </TouchableOpacity>
-            </View>
+    <LinearGradient colors={['#F5F7FA', '#E8F0E8']} style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      
+      {/* Decorative background elements */}
+      <View style={styles.bgCircle1} />
+      <View style={styles.bgCircle2} />
+      <View style={styles.bgCircle3} />
 
-            {/* Simple Stats - Total Plants and Spaces only */}
-            <View style={styles.statsContainer}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{plants.length}</Text>
-                <Text style={styles.statLabel}>Total Plants</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{spaces.length}</Text>
-                <Text style={styles.statLabel}>Spaces</Text>
-              </View>
-            </View>
-          </View>
-        </LinearGradient>
-
-        <View style={styles.quickActions}>
-          <TouchableOpacity style={styles.actionButton} onPress={openWaterModal}>
-            <View style={[styles.actionIcon, { backgroundColor: '#E8F5E9' }]}>
-              <Ionicons name="water-outline" size={24} color="#2E7D5E" />
-            </View>
-            <Text style={[styles.actionText, { marginTop: 8 }]}>Water</Text>
-            {duePlants.length > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{duePlants.length}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.actionButton} onPress={openFertilizeModal}>
-            <View style={[styles.actionIcon, { backgroundColor: '#E8EAF6' }]}>
-              <Ionicons name="flower-outline" size={24} color="#5C6BC0" />
-            </View>
-            <Text style={[styles.actionText, { marginTop: 8 }]}>Fertilize</Text>
-            {fertilizeDuePlants.length > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{fertilizeDuePlants.length}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionTitle}>Your Spaces</Text>
-            <Text style={styles.sectionSubtitle}>Manage your botanical zones</Text>
-          </View>
-          <TouchableOpacity onPress={() => router.push('/add-space')}>
-            <Ionicons name="add-circle-outline" size={28} color="#2E7D5E" />
-          </TouchableOpacity>
-        </View>
-
-        {spaces.map((space) => {
-          // Compute thriving percentage for this space (recomputed on every render)
-          const spacePlants = plants.filter((p) => p.spaceId === space.id);
-          let thrivingPercentage = 0;
-          
-          if (spacePlants.length > 0) {
-            const thrivingInSpace = spacePlants.filter(p => isPlantThriving(p)).length;
-            thrivingPercentage = Math.round((thrivingInSpace / spacePlants.length) * 100);
-          }
-
-          return (
-            <Link key={space.id} href={{ pathname: '/space/[id]', params: { id: space.id, name: space.name } }} asChild>
-              <TouchableOpacity activeOpacity={0.7}>
-                <LinearGradient colors={['#FFFFFF', '#F8FAFC']} style={styles.spaceCard}>
-                  <View style={styles.spaceCardContent}>
-                    <View style={[styles.spaceIconLarge, { backgroundColor: getLightConditionColor(space.lightCondition) + '20' }]}>
-                      <Ionicons name="leaf" size={32} color={getLightConditionColor(space.lightCondition)} />
-                    </View>
-
-                    <View style={styles.spaceDetails}>
-                      <View style={styles.spaceHeader}>
-                        <Text style={styles.spaceName}>{space.name}</Text>
-                        <TouchableOpacity
-                          onPress={() => handleOpenMenu(space)}
-                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                          <Ionicons name="ellipsis-horizontal-circle" size={24} color="#94A3B8" />
-                        </TouchableOpacity>
-                      </View>
-
-                      <View style={styles.spaceMeta}>
-                        <View style={[styles.metaItem, { marginRight: 16 }]}>
-                          <Ionicons name="sunny-outline" size={14} color="#64748B" />
-                          <Text style={styles.metaText}>{space.lightCondition}</Text>
-                        </View>
-                        <View style={styles.metaItem}>
-                          <Ionicons name="leaf-outline" size={14} color="#64748B" />
-                          <Text style={styles.metaText}>{spacePlants.length} plants</Text>
-                        </View>
-                      </View>
-
-                      {/* Progress Bar - updates immediately when plants change */}
-                      <View style={styles.progressContainer}>
-                        <View style={styles.progressBar}>
-                          <View style={[styles.progressFill, { width: `${thrivingPercentage}%` }]} />
-                        </View>
-                        <Text style={[styles.progressText, { marginLeft: 10 }]}>
-                          {thrivingPercentage}% thriving
-                        </Text>
-                      </View>
-                    </View>
+      <SafeAreaView style={styles.safeArea}>
+        <Animated.ScrollView 
+          contentContainerStyle={styles.scrollContent} 
+          showsVerticalScrollIndicator={false}
+          style={{ opacity: fadeAnim }}
+        >
+          <Animated.View style={{ transform: [{ translateY: headerFloat }] }}>
+            <LinearGradient colors={['#1B4D3E', '#0F2F26']} style={styles.headerGradient}>
+              <View style={styles.headerContent}>
+                <View style={styles.headerTop}>
+                  <View>
+                    <Text style={styles.brandTitle}>Leaflog</Text>
+                    <Text style={styles.greeting}>Welcome back, plant parent 🌱</Text>
                   </View>
+                  <TouchableOpacity style={styles.profileButton}>
+                    <Ionicons name="person-circle-outline" size={40} color="#E7F0E9" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Simple Stats - Total Plants and Spaces only */}
+                <View style={styles.statsContainer}>
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>{plants.length}</Text>
+                    <Text style={styles.statLabel}>Total Plants</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>{spaces.length}</Text>
+                    <Text style={styles.statLabel}>Spaces</Text>
+                  </View>
+                </View>
+              </View>
+            </LinearGradient>
+          </Animated.View>
+
+          <View style={styles.quickActions}>
+            <Animated.View style={{ transform: [{ scale: duePlants.length > 0 ? actionButtonScale : 1 }] }}>
+              <TouchableOpacity style={styles.actionButton} onPress={openWaterModal}>
+                <LinearGradient
+                  colors={duePlants.length > 0 ? ['#E8F5E9', '#C8E6C9'] : ['#FFFFFF', '#F8FAFC']}
+                  style={styles.actionIcon}
+                >
+                  <Ionicons name="water-outline" size={24} color="#2E7D5E" />
                 </LinearGradient>
-              </TouchableOpacity>
-            </Link>
-          );
-        })}
-
-        <TouchableOpacity style={styles.retiredSection} onPress={() => router.push('/retired')}>
-          <View style={styles.retiredContent}>
-            <View style={styles.retiredIconContainer}>
-              <Ionicons name="archive-outline" size={24} color="#94A3B8" />
-            </View>
-            <View style={{ marginLeft: 12 }}>
-              <Text style={styles.retiredTitle}>Retired Plants</Text>
-              <Text style={styles.retiredSub}>Archive of past growth</Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
-        </TouchableOpacity>
-
-        <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.tipCard}>
-          <Ionicons name="bulb-outline" size={24} color="#FFE082" />
-          <View style={[styles.tipContent, { marginLeft: 16 }]}>
-            <Text style={styles.tipTitle}>Plant Care Tip</Text>
-            <Text style={styles.tipText}>
-              Water your succulents only when the soil is completely dry to prevent root rot.
-            </Text>
-          </View>
-        </LinearGradient>
-      </ScrollView>
-
-      <Link href="/add-space" asChild>
-        <TouchableOpacity style={[styles.fab, { bottom: insets.bottom + 20 }]}>
-          <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.fabGradient}>
-            <Ionicons name="add" size={32} color="#FFFFFF" />
-          </LinearGradient>
-        </TouchableOpacity>
-      </Link>
-
-      {/* Water Modal */}
-      <Modal visible={waterModalVisible} transparent animationType="slide">
-        <Pressable style={styles.modalOverlay} onPress={() => setWaterModalVisible(false)}>
-          <View style={styles.modalBackground}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHandle} />
-              <Text style={styles.modalTitle}>Water Plants</Text>
-              <Text style={styles.modalSubtitle}>
-                Select plants you watered today ({duePlants.length} due)
-              </Text>
-
-              <FlatList
-                data={duePlants}
-                keyExtractor={(item) => item.id}
-                style={styles.plantList}
-                renderItem={({ item }) => (
-                  <View style={styles.modalPlantItem}>
-                    <TouchableOpacity style={styles.checkboxContainer} onPress={() => togglePlantSelection(item.id)}>
-                      <View style={[styles.checkbox, selectedPlants.has(item.id) ? styles.checkboxChecked : null]}>
-                        {selectedPlants.has(item.id) && <Ionicons name="checkmark" size={16} color="#FFFFFF" />}
-                      </View>
-                      <View style={styles.plantInfo}>
-                        <Text style={styles.plantName}>{item.name}</Text>
-                        <Text style={styles.plantSpace}>{getSpaceName(item.spaceId)}</Text>
-                      </View>
-                    </TouchableOpacity>
-                    <View style={styles.actionButtons}>
-                      <TouchableOpacity style={[styles.waterSingleButton, { marginRight: 8 }]} onPress={() => waterSinglePlant(item.id)}>
-                        <Ionicons name="water" size={18} color="#2E7D5E" />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.snoozeButton} onPress={() => snoozePlant(item.id, 2)}>
-                        <Text style={styles.snoozeText}>Snooze 2d</Text>
-                      </TouchableOpacity>
-                    </View>
+                <Text style={styles.actionText}>Water</Text>
+                {duePlants.length > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{duePlants.length}</Text>
                   </View>
                 )}
-                ListEmptyComponent={<Text style={styles.emptyText}>All plants are watered! 🌿</Text>}
-              />
+              </TouchableOpacity>
+            </Animated.View>
 
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={[styles.modalButton, styles.cancelButton, { marginRight: 12 }]} onPress={() => setWaterModalVisible(false)}>
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
+            <Animated.View style={{ transform: [{ scale: fertilizeDuePlants.length > 0 ? actionButtonScale : 1 }] }}>
+              <TouchableOpacity style={styles.actionButton} onPress={openFertilizeModal}>
+                <LinearGradient
+                  colors={fertilizeDuePlants.length > 0 ? ['#E8EAF6', '#C5CAE9'] : ['#FFFFFF', '#F8FAFC']}
+                  style={styles.actionIcon}
+                >
+                  <Ionicons name="flower-outline" size={24} color="#5C6BC0" />
+                </LinearGradient>
+                <Text style={styles.actionText}>Fertilize</Text>
+                {fertilizeDuePlants.length > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{fertilizeDuePlants.length}</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
+
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Your Spaces</Text>
+              <Text style={styles.sectionSubtitle}>Manage your botanical zones</Text>
+            </View>
+            <TouchableOpacity onPress={() => router.push('/add-space')}>
+              <Ionicons name="add-circle-outline" size={28} color="#2E7D5E" />
+            </TouchableOpacity>
+          </View>
+
+          {spaces.map((space, index) => {
+            // Compute thriving percentage for this space (recomputed on every render)
+            const spacePlants = plants.filter((p) => p.spaceId === space.id);
+            let thrivingPercentage = 0;
+            
+            if (spacePlants.length > 0) {
+              const thrivingInSpace = spacePlants.filter(p => isPlantThriving(p)).length;
+              thrivingPercentage = Math.round((thrivingInSpace / spacePlants.length) * 100);
+            }
+
+            const cardScale = cardAnimations[space.id] || new Animated.Value(1);
+
+            return (
+              <Link key={space.id} href={{ pathname: '/space/[id]', params: { id: space.id, name: space.name } }} asChild>
+                <TouchableOpacity activeOpacity={0.7}>
+                  <Animated.View style={{ transform: [{ scale: cardScale }] }}>
+                    <LinearGradient colors={['#FFFFFF', '#F8FAFC']} style={styles.spaceCard}>
+                      <View style={styles.spaceCardContent}>
+                        <View style={[styles.spaceIconLarge, { backgroundColor: getLightConditionColor(space.lightCondition) + '20' }]}>
+                          <Ionicons name="leaf" size={32} color={getLightConditionColor(space.lightCondition)} />
+                        </View>
+
+                        <View style={styles.spaceDetails}>
+                          <View style={styles.spaceHeader}>
+                            <Text style={styles.spaceName}>{space.name}</Text>
+                            <TouchableOpacity
+                              onPress={() => handleOpenMenu(space)}
+                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                              <Ionicons name="ellipsis-horizontal-circle" size={24} color="#94A3B8" />
+                            </TouchableOpacity>
+                          </View>
+
+                          <View style={styles.spaceMeta}>
+                            <View style={[styles.metaItem, { marginRight: 16 }]}>
+                              <Ionicons name="sunny-outline" size={14} color="#64748B" />
+                              <Text style={styles.metaText}>{space.lightCondition}</Text>
+                            </View>
+                            <View style={styles.metaItem}>
+                              <Ionicons name="leaf-outline" size={14} color="#64748B" />
+                              <Text style={styles.metaText}>{spacePlants.length} plants</Text>
+                            </View>
+                          </View>
+
+                          {/* Progress Bar - updates immediately when plants change */}
+                          <View style={styles.progressContainer}>
+                            <View style={styles.progressBar}>
+                              <View style={[styles.progressFill, { width: `${thrivingPercentage}%` }]} />
+                            </View>
+                            <Text style={styles.progressText}>
+                              {thrivingPercentage}% thriving
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    </LinearGradient>
+                  </Animated.View>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.modalButton, styles.doneButton]} onPress={logWatering}>
-                  <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.doneButtonGradient}>
-                    <Text style={styles.doneButtonText}>Done</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
+              </Link>
+            );
+          })}
+
+          <TouchableOpacity style={styles.retiredSection} onPress={() => router.push('/retired')}>
+            <View style={styles.retiredContent}>
+              <View style={styles.retiredIconContainer}>
+                <Ionicons name="archive-outline" size={24} color="#94A3B8" />
+              </View>
+              <View style={{ marginLeft: 12 }}>
+                <Text style={styles.retiredTitle}>Retired Plants</Text>
+                <Text style={styles.retiredSub}>Archive of past growth</Text>
               </View>
             </View>
-          </View>
+            <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
+          </TouchableOpacity>
+
+          <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.tipCard}>
+            <Ionicons name="bulb-outline" size={24} color="#FFE082" />
+            <View style={[styles.tipContent, { marginLeft: 16 }]}>
+              <Text style={styles.tipTitle}>Plant Care Tip</Text>
+              <Text style={styles.tipText}>
+                Water your succulents only when the soil is completely dry to prevent root rot.
+              </Text>
+            </View>
+          </LinearGradient>
+        </Animated.ScrollView>
+
+        <Link href="/add-space" asChild>
+          <TouchableOpacity style={[styles.fab, { bottom: insets.bottom + 20 }]}>
+            <Animated.View style={{ transform: [{ scale: fabAnim }] }}>
+              <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.fabGradient}>
+                <Ionicons name="add" size={32} color="#FFFFFF" />
+              </LinearGradient>
+            </Animated.View>
+          </TouchableOpacity>
+        </Link>
+      </SafeAreaView>
+
+      {/* Water Modal */}
+      <Modal visible={waterModalVisible} transparent animationType="none">
+        <Pressable style={styles.modalOverlay} onPress={() => setWaterModalVisible(false)}>
+          <Animated.View style={[styles.modalBackground, { transform: [{ translateY: modalSlideAnim }] }]}>
+            <BlurView intensity={90} tint="light" style={styles.modalBlur}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHandle} />
+                <Text style={styles.modalTitle}>Water Plants</Text>
+                <Text style={styles.modalSubtitle}>
+                  Select plants you watered today ({duePlants.length} due)
+                </Text>
+
+                <FlatList
+                  data={duePlants}
+                  keyExtractor={(item) => item.id}
+                  style={styles.plantList}
+                  renderItem={({ item }) => (
+                    <View style={styles.modalPlantItem}>
+                      <TouchableOpacity style={styles.checkboxContainer} onPress={() => togglePlantSelection(item.id)}>
+                        <View style={[styles.checkbox, selectedPlants.has(item.id) ? styles.checkboxChecked : null]}>
+                          {selectedPlants.has(item.id) && <Ionicons name="checkmark" size={16} color="#FFFFFF" />}
+                        </View>
+                        <View style={styles.plantInfo}>
+                          <Text style={styles.plantName}>{item.name}</Text>
+                          <Text style={styles.plantSpace}>{getSpaceName(item.spaceId)}</Text>
+                        </View>
+                      </TouchableOpacity>
+                      <View style={styles.actionButtons}>
+                        <TouchableOpacity style={[styles.waterSingleButton, { marginRight: 8 }]} onPress={() => waterSinglePlant(item.id)}>
+                          <Ionicons name="water" size={18} color="#2E7D5E" />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.snoozeButton} onPress={() => snoozePlant(item.id, 2)}>
+                          <Text style={styles.snoozeText}>Snooze 2d</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+                  ListEmptyComponent={<Text style={styles.emptyText}>All plants are watered! 🌿</Text>}
+                />
+
+                <View style={styles.modalActions}>
+                  <TouchableOpacity style={[styles.modalButton, styles.cancelButton, { marginRight: 12 }]} onPress={() => setWaterModalVisible(false)}>
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.modalButton, styles.doneButton]} onPress={logWatering}>
+                    <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.doneButtonGradient}>
+                      <Text style={styles.doneButtonText}>Done</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </BlurView>
+          </Animated.View>
         </Pressable>
       </Modal>
 
       {/* Fertilize Modal */}
-      <Modal visible={fertilizeModalVisible} transparent animationType="slide">
+      <Modal visible={fertilizeModalVisible} transparent animationType="none">
         <Pressable style={styles.modalOverlay} onPress={() => setFertilizeModalVisible(false)}>
-          <View style={styles.modalBackground}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHandle} />
-              <Text style={styles.modalTitle}>Fertilize Plants</Text>
-              
-              <Text style={styles.modalSubtitle}>
-                Select plants to fertilize ({fertilizeDuePlants.length} due)
-              </Text>
-              <FlatList
-                data={fertilizeDuePlants}
-                keyExtractor={(item) => item.id}
-                style={styles.plantList}
-                renderItem={({ item }) => (
-                  <View style={styles.modalPlantItem}>
-                    <TouchableOpacity style={styles.checkboxContainer} onPress={() => toggleFertilizeSelection(item.id)}>
-                      <View style={[styles.checkbox, selectedFertilizePlants.has(item.id) ? styles.checkboxChecked : null]}>
-                        {selectedFertilizePlants.has(item.id) && <Ionicons name="checkmark" size={16} color="#FFFFFF" />}
-                      </View>
-                      <View style={styles.plantInfo}>
-                        <Text style={styles.plantName}>{item.name}</Text>
-                        <Text style={styles.plantSpace}>{getSpaceName(item.spaceId)}</Text>
-                        {item.lastFertilized && (
-                          <Text style={styles.lastFed}>
-                            Last fed: {item.lastFertilized.toDate().toLocaleDateString()}
-                          </Text>
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.fertilizeSingleButton} onPress={() => fertilizeSinglePlant(item.id)}>
-                      <Ionicons name="flower" size={18} color="#5C6BC0" />
-                    </TouchableOpacity>
-                  </View>
-                )}
-                ListEmptyComponent={<Text style={styles.emptyText}>All plants are up to date! 🌱</Text>}
-              />
+          <Animated.View style={[styles.modalBackground, { transform: [{ translateY: modalSlideAnim }] }]}>
+            <BlurView intensity={90} tint="light" style={styles.modalBlur}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHandle} />
+                <Text style={styles.modalTitle}>Fertilize Plants</Text>
+                
+                <Text style={styles.modalSubtitle}>
+                  Select plants to fertilize ({fertilizeDuePlants.length} due)
+                </Text>
+                <FlatList
+                  data={fertilizeDuePlants}
+                  keyExtractor={(item) => item.id}
+                  style={styles.plantList}
+                  renderItem={({ item }) => (
+                    <View style={styles.modalPlantItem}>
+                      <TouchableOpacity style={styles.checkboxContainer} onPress={() => toggleFertilizeSelection(item.id)}>
+                        <View style={[styles.checkbox, selectedFertilizePlants.has(item.id) ? styles.checkboxChecked : null]}>
+                          {selectedFertilizePlants.has(item.id) && <Ionicons name="checkmark" size={16} color="#FFFFFF" />}
+                        </View>
+                        <View style={styles.plantInfo}>
+                          <Text style={styles.plantName}>{item.name}</Text>
+                          <Text style={styles.plantSpace}>{getSpaceName(item.spaceId)}</Text>
+                          {item.lastFertilized && (
+                            <Text style={styles.lastFed}>
+                              Last fed: {item.lastFertilized.toDate().toLocaleDateString()}
+                            </Text>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.fertilizeSingleButton} onPress={() => fertilizeSinglePlant(item.id)}>
+                        <Ionicons name="flower" size={18} color="#5C6BC0" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  ListEmptyComponent={<Text style={styles.emptyText}>All plants are up to date! 🌱</Text>}
+                />
 
-              <View style={styles.modalActions}>
-                <TouchableOpacity style={[styles.modalButton, styles.cancelButton, { marginRight: 12 }]} onPress={() => setFertilizeModalVisible(false)}>
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.modalButton, styles.doneButton]} onPress={logFertilizing}>
-                  <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.doneButtonGradient}>
-                    <Text style={styles.doneButtonText}>Done</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
+                <View style={styles.modalActions}>
+                  <TouchableOpacity style={[styles.modalButton, styles.cancelButton, { marginRight: 12 }]} onPress={() => setFertilizeModalVisible(false)}>
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.modalButton, styles.doneButton]} onPress={logFertilizing}>
+                    <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.doneButtonGradient}>
+                      <Text style={styles.doneButtonText}>Done</Text>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          </View>
+            </BlurView>
+          </Animated.View>
         </Pressable>
       </Modal>
 
       {/* Space Menu Modal */}
-      <Modal visible={menuVisible} transparent animationType="slide">
+      <Modal visible={menuVisible} transparent animationType="none">
         <Pressable style={styles.modalOverlay} onPress={() => setMenuVisible(false)}>
-          <View style={styles.modalBackground}>
-            <View style={styles.modalContent}>
-              <View style={styles.modalHandle} />
-              <View style={styles.modalHeader}>
-                <View style={[styles.spaceIconSmall, { backgroundColor: getLightConditionColor(selectedSpace?.lightCondition || '') + '20' }]}>
-                  <Ionicons name="leaf" size={24} color={getLightConditionColor(selectedSpace?.lightCondition || '')} />
+          <Animated.View style={[styles.modalBackground, { transform: [{ translateY: modalSlideAnim }] }]}>
+            <BlurView intensity={90} tint="light" style={styles.modalBlur}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHandle} />
+                <View style={styles.modalHeader}>
+                  <View style={[styles.spaceIconSmall, { backgroundColor: getLightConditionColor(selectedSpace?.lightCondition || '') + '20' }]}>
+                    <Ionicons name="leaf" size={24} color={getLightConditionColor(selectedSpace?.lightCondition || '')} />
+                  </View>
+                  <Text style={styles.modalTitle}>{selectedSpace?.name}</Text>
                 </View>
-                <Text style={styles.modalTitle}>{selectedSpace?.name}</Text>
+
+                <TouchableOpacity style={styles.modalOption} onPress={() => { setMenuVisible(false); router.push({ pathname: '/add-plant', params: { spaceId: selectedSpace?.id } }); }}>
+                  <View style={[styles.optionIcon, { backgroundColor: '#E8F5E9' }]}>
+                    <Ionicons name="add-circle-outline" size={24} color="#2E7D5E" />
+                  </View>
+                  <View style={styles.optionTextContainer}>
+                    <Text style={styles.optionTitle}>Add New Plant</Text>
+                    <Text style={styles.optionSubtitle}>Add a plant to this space</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.modalOption} onPress={() => { setMenuVisible(false); router.push({ pathname: '/edit-space', params: { id: selectedSpace?.id, name: selectedSpace?.name, light: selectedSpace?.lightCondition } }); }}>
+                  <View style={[styles.optionIcon, { backgroundColor: '#E8EAF6' }]}>
+                    <Ionicons name="settings-outline" size={24} color="#5C6BC0" />
+                  </View>
+                  <View style={styles.optionTextContainer}>
+                    <Text style={styles.optionTitle}>Space Settings</Text>
+                    <Text style={styles.optionSubtitle}>Edit space details</Text>
+                  </View>
+                </TouchableOpacity>
               </View>
-
-              <TouchableOpacity style={styles.modalOption} onPress={() => { setMenuVisible(false); router.push({ pathname: '/add-plant', params: { spaceId: selectedSpace?.id } }); }}>
-                <View style={[styles.optionIcon, { backgroundColor: '#E8F5E9' }]}>
-                  <Ionicons name="add-circle-outline" size={24} color="#2E7D5E" />
-                </View>
-                <View style={styles.optionTextContainer}>
-                  <Text style={styles.optionTitle}>Add New Plant</Text>
-                  <Text style={styles.optionSubtitle}>Add a plant to this space</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.modalOption} onPress={() => { setMenuVisible(false); router.push({ pathname: '/edit-space', params: { id: selectedSpace?.id, name: selectedSpace?.name, light: selectedSpace?.lightCondition } }); }}>
-                <View style={[styles.optionIcon, { backgroundColor: '#E8EAF6' }]}>
-                  <Ionicons name="settings-outline" size={24} color="#5C6BC0" />
-                </View>
-                <View style={styles.optionTextContainer}>
-                  <Text style={styles.optionTitle}>Space Settings</Text>
-                  <Text style={styles.optionSubtitle}>Edit space details</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-          </View>
+            </BlurView>
+          </Animated.View>
         </Pressable>
       </Modal>
-    </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F7FA' },
+  container: { flex: 1 },
+  safeArea: { flex: 1 },
   scrollContent: { paddingBottom: 100 },
+  bgCircle1: {
+    position: 'absolute',
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: 'rgba(46, 125, 94, 0.05)',
+    top: -100,
+    right: -100,
+  },
+  bgCircle2: {
+    position: 'absolute',
+    width: 250,
+    height: 250,
+    borderRadius: 125,
+    backgroundColor: 'rgba(27, 77, 62, 0.05)',
+    bottom: -50,
+    left: -100,
+  },
+  bgCircle3: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(165, 214, 167, 0.1)',
+    top: '40%',
+    right: -50,
+  },
   headerGradient: {
     paddingTop: 60,
     paddingBottom: 30,
@@ -751,12 +930,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
   },
-  actionText: { fontSize: 12, fontWeight: '600', color: '#334155' },
+  actionText: { fontSize: 12, fontWeight: '600', color: '#334155', marginTop: 8 },
   badge: {
     position: 'absolute',
     top: -5,
@@ -768,6 +947,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   badgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: 'bold' },
   sectionHeader: {
@@ -785,8 +966,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
     shadowRadius: 12,
     elevation: 4,
   },
@@ -807,14 +988,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   metaItem: { flexDirection: 'row', alignItems: 'center' },
-  metaText: { fontSize: 13, color: '#64748B' },
+  metaText: { fontSize: 13, color: '#64748B', marginLeft: 4 },
   progressContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   progressBar: { flex: 1, height: 6, backgroundColor: '#E2E8F0', borderRadius: 3 },
   progressFill: { height: 6, backgroundColor: '#2E7D5E', borderRadius: 3 },
-  progressText: { fontSize: 12, color: '#64748B' },
+  progressText: { fontSize: 12, color: '#64748B', marginLeft: 10, minWidth: 70 },
   retiredSection: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -826,8 +1007,8 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 2,
   },
@@ -850,6 +1031,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     padding: 20,
     borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   tipContent: { flex: 1 },
   tipTitle: { fontSize: 14, fontWeight: '600', color: '#FFE082', marginBottom: 4 },
@@ -880,8 +1066,13 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  modalBlur: {
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    overflow: 'hidden',
+  },
   modalContent: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255,255,255,0.95)',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     padding: 24,
@@ -992,4 +1183,4 @@ const styles = StyleSheet.create({
   optionTextContainer: { flex: 1 },
   optionTitle: { fontSize: 16, fontWeight: '600', color: '#1E293B', marginBottom: 2 },
   optionSubtitle: { fontSize: 13, color: '#64748B' },
-});
+}); 
