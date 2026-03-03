@@ -14,6 +14,8 @@ import {
   Animated,
   StatusBar,
   Easing,
+  Image,
+  Platform,
 } from 'react-native';
 import { db, auth } from '../../firebaseConfig';
 import {
@@ -89,6 +91,12 @@ export default function HomeDashboard() {
   const actionButtonScale = useRef(new Animated.Value(1)).current;
   const fabAnim = useRef(new Animated.Value(0)).current;
   const modalSlideAnim = useRef(new Animated.Value(height)).current;
+  
+  // Leaf animation values
+  const leaf1Anim = useRef(new Animated.Value(0)).current;
+  const leaf2Anim = useRef(new Animated.Value(0)).current;
+  const leaf3Anim = useRef(new Animated.Value(0)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     // Entrance animation
@@ -127,6 +135,68 @@ export default function HomeDashboard() {
       useNativeDriver: true,
       delay: 500,
     }).start();
+
+    // Leaf animations (infinite)
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(leaf1Anim, {
+          toValue: 1,
+          duration: 3000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+        Animated.timing(leaf1Anim, {
+          toValue: 0,
+          duration: 3000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(leaf2Anim, {
+          toValue: 1,
+          duration: 4000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+        Animated.timing(leaf2Anim, {
+          toValue: 0,
+          duration: 4000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(leaf3Anim, {
+          toValue: 1,
+          duration: 3500,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+        Animated.timing(leaf3Anim, {
+          toValue: 0,
+          duration: 3500,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+      ])
+    ).start();
+
+    // Rotation animation for background elements
+    Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 20000,
+        useNativeDriver: true,
+        easing: Easing.linear,
+      })
+    ).start();
 
     // Pulse animation for action buttons when there are due plants
     if (duePlants.length > 0 || fertilizeDuePlants.length > 0) {
@@ -500,14 +570,51 @@ export default function HomeDashboard() {
     outputRange: [0, -5],
   });
 
+  // Leaf animation interpolations
+  const leaf1Rotate = leaf1Anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['-2deg', '2deg'],
+  });
+
+  const leaf2Rotate = leaf2Anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['3deg', '-1deg'],
+  });
+
+  const leaf3Rotate = leaf3Anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['-1deg', '3deg'],
+  });
+
+  const rotate = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
   return (
-    <LinearGradient colors={['#F5F7FA', '#E8F0E8']} style={styles.container}>
+    <LinearGradient 
+      colors={['#E8F5E9', '#C8E6C9', '#A5D6A7']} 
+      style={styles.container}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+    >
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
-      {/* Decorative background elements */}
-      <View style={styles.bgCircle1} />
-      <View style={styles.bgCircle2} />
+      {/* Enhanced Decorative background elements with animations */}
+      <Animated.View style={[styles.bgCircle1, { transform: [{ rotate }] }]} />
+      <Animated.View style={[styles.bgCircle2, { transform: [{ rotate: rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-360deg'] }) }] }]} />
       <View style={styles.bgCircle3} />
+      
+      {/* Floating leaf decorations */}
+      <Animated.View style={[styles.floatingLeaf1, { transform: [{ rotate: leaf1Rotate }, { translateY: leaf1Anim.interpolate({ inputRange: [0, 1], outputRange: [0, -10] }) }] }]}>
+        <Text style={styles.leafEmoji}>🌿</Text>
+      </Animated.View>
+      <Animated.View style={[styles.floatingLeaf2, { transform: [{ rotate: leaf2Rotate }, { translateY: leaf2Anim.interpolate({ inputRange: [0, 1], outputRange: [0, -15] }) }] }]}>
+        <Text style={styles.leafEmoji}>🌱</Text>
+      </Animated.View>
+      <Animated.View style={[styles.floatingLeaf3, { transform: [{ rotate: leaf3Rotate }, { translateY: leaf3Anim.interpolate({ inputRange: [0, 1], outputRange: [0, -12] }) }] }]}>
+        <Text style={styles.leafEmoji}>🍃</Text>
+      </Animated.View>
 
       <SafeAreaView style={styles.safeArea}>
         <Animated.ScrollView 
@@ -516,11 +623,14 @@ export default function HomeDashboard() {
           style={{ opacity: fadeAnim }}
         >
           <Animated.View style={{ transform: [{ translateY: headerFloat }] }}>
-            <LinearGradient colors={['#1B4D3E', '#0F2F26']} style={styles.headerGradient}>
+            <LinearGradient 
+              colors={['rgba(27, 77, 62, 0.95)', 'rgba(15, 47, 38, 0.98)']} 
+              style={styles.headerGradient}
+            >
               <View style={styles.headerContent}>
                 <View style={styles.headerTop}>
                   <View>
-                    <Text style={styles.brandTitle}>Leaflog</Text>
+                    <Text style={styles.brandTitle}>leaflog</Text>
                     <Text style={styles.greeting}>Welcome back, plant parent 🌱</Text>
                   </View>
                   <TouchableOpacity style={styles.profileButton}>
@@ -849,7 +959,7 @@ const styles = StyleSheet.create({
     width: 300,
     height: 300,
     borderRadius: 150,
-    backgroundColor: 'rgba(46, 125, 94, 0.05)',
+    backgroundColor: 'rgba(46, 125, 94, 0.1)',
     top: -100,
     right: -100,
   },
@@ -858,7 +968,7 @@ const styles = StyleSheet.create({
     width: 250,
     height: 250,
     borderRadius: 125,
-    backgroundColor: 'rgba(27, 77, 62, 0.05)',
+    backgroundColor: 'rgba(27, 77, 62, 0.1)',
     bottom: -50,
     left: -100,
   },
@@ -867,9 +977,31 @@ const styles = StyleSheet.create({
     width: 200,
     height: 200,
     borderRadius: 100,
-    backgroundColor: 'rgba(165, 214, 167, 0.1)',
+    backgroundColor: 'rgba(165, 214, 167, 0.2)',
     top: '40%',
     right: -50,
+  },
+  floatingLeaf1: {
+    position: 'absolute',
+    top: 100,
+    right: 30,
+    zIndex: 10,
+  },
+  floatingLeaf2: {
+    position: 'absolute',
+    bottom: 150,
+    left: 20,
+    zIndex: 10,
+  },
+  floatingLeaf3: {
+    position: 'absolute',
+    top: '60%',
+    right: 50,
+    zIndex: 10,
+  },
+  leafEmoji: {
+    fontSize: 24,
+    opacity: 0.3,
   },
   headerGradient: {
     paddingTop: 60,
@@ -891,6 +1023,7 @@ const styles = StyleSheet.create({
     color: '#E7F0E9',
     letterSpacing: 2,
     textTransform: 'lowercase',
+    fontFamily: Platform.OS === 'ios' ? 'Didot' : 'serif',
   },
   greeting: { fontSize: 16, color: '#A8C5B5', marginTop: 4 },
   profileButton: {
@@ -1183,4 +1316,4 @@ const styles = StyleSheet.create({
   optionTextContainer: { flex: 1 },
   optionTitle: { fontSize: 16, fontWeight: '600', color: '#1E293B', marginBottom: 2 },
   optionSubtitle: { fontSize: 13, color: '#64748B' },
-}); 
+});

@@ -1,5 +1,8 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { 
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, 
+  TextInput, Alert, Animated, Easing, Dimensions, StatusBar 
+} from 'react-native';
 import { useLocalSearchParams, useRouter, Link } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { db, auth } from '../../firebaseConfig';
@@ -7,6 +10,9 @@ import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
+import { BlurView } from 'expo-blur';
+
+const { width, height } = Dimensions.get('window');
 
 interface Plant {
   id: string;
@@ -32,7 +38,160 @@ export default function SpaceDetail() {
   const [layout, setLayout] = useState<'Compact' | 'Detailed'>('Compact');
   const [search, setSearch] = useState('');
 
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
+  const headerFloatAnim = useRef(new Animated.Value(0)).current;
+  const searchScale = useRef(new Animated.Value(1)).current;
+  const fabAnim = useRef(new Animated.Value(0)).current;
+  
+  // Background animation values
+  const floatAnim1 = useRef(new Animated.Value(0)).current;
+  const floatAnim2 = useRef(new Animated.Value(0)).current;
+  const floatAnim3 = useRef(new Animated.Value(0)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+  
+  // Particle animations
+  const particleAnims = useRef<Animated.Value[]>([]).current;
+  const particleCount = 4;
+
   useEffect(() => {
+    // Initialize particle animations
+    for (let i = 0; i < particleCount; i++) {
+      particleAnims[i] = new Animated.Value(0);
+    }
+
+    // Entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.cubic),
+      }),
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+      Animated.timing(headerFloatAnim, {
+        toValue: 1,
+        duration: 2000,
+        useNativeDriver: true,
+        easing: Easing.inOut(Easing.sin),
+      }),
+      Animated.spring(fabAnim, {
+        toValue: 1,
+        tension: 40,
+        friction: 5,
+        useNativeDriver: true,
+        delay: 400,
+      }),
+    ]).start();
+
+    // Background floating animations
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim1, {
+          toValue: 1,
+          duration: 3000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+        Animated.timing(floatAnim1, {
+          toValue: 0,
+          duration: 3000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim2, {
+          toValue: 1,
+          duration: 4000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+        Animated.timing(floatAnim2, {
+          toValue: 0,
+          duration: 4000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+      ])
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(floatAnim3, {
+          toValue: 1,
+          duration: 5000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+        Animated.timing(floatAnim3, {
+          toValue: 0,
+          duration: 5000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+      ])
+    ).start();
+
+    // Rotation animation
+    Animated.loop(
+      Animated.timing(rotateAnim, {
+        toValue: 1,
+        duration: 20000,
+        useNativeDriver: true,
+        easing: Easing.linear,
+      })
+    ).start();
+
+    // Pulse animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0,
+          duration: 2000,
+          useNativeDriver: true,
+          easing: Easing.inOut(Easing.sin),
+        }),
+      ])
+    ).start();
+
+    // Particle animations
+    particleAnims.forEach((anim, index) => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(index * 800),
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: 4000 + index * 500,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.sin),
+          }),
+          Animated.timing(anim, {
+            toValue: 0,
+            duration: 4000 + index * 500,
+            useNativeDriver: true,
+            easing: Easing.inOut(Easing.sin),
+          }),
+        ])
+      ).start();
+    });
+
     const user = auth.currentUser;
     if (!user || !id) return;
 
@@ -40,8 +199,7 @@ export default function SpaceDetail() {
       collection(db, "plants"),
       where("userId", "==", user.uid),
       where("spaceId", "==", id),
-      where("status", "!=", "retired") // 👈 Idagdag ito
-      
+      where("status", "!=", "retired")
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -72,7 +230,7 @@ export default function SpaceDetail() {
     plant.name?.toLowerCase().includes(search.toLowerCase())
   );
 
-  // ----- NOTIFICATION HELPER (copy from PlantsScreen) -----
+  // ----- NOTIFICATION HELPER -----
   const scheduleWateringReminder = async (plantId: string, plantName: string, dueDate: Date) => {
     const baseId = `plant-water-${plantId}`;
     const dueId = `${baseId}-due`;
@@ -117,7 +275,7 @@ export default function SpaceDetail() {
     await scheduleOne(reminder2Id, reminder2Date, `I'm so thirsty, master! Water ${plantName} now!`);
   };
 
-  // ----- HANDLE WATERING (NEW!) -----
+  // ----- HANDLE WATERING -----
   const handleWaterPlant = async (plant: Plant) => {
     if (!plant) return;
     
@@ -139,6 +297,7 @@ export default function SpaceDetail() {
 
       await scheduleWateringReminder(plant.id, plant.name, nextDate);
       
+      // Animate success
       Alert.alert("✅ Watered!", `${plant.name} has been watered. Next reminder scheduled.`);
     } catch (error) {
       console.error("Error watering plant:", error);
@@ -250,45 +409,126 @@ export default function SpaceDetail() {
     }
   }, [formatDate]);
 
+  // Animation interpolations
+  const headerFloat = headerFloatAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -5],
+  });
+
+  const float1 = floatAnim1.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 15],
+  });
+
+  const float2 = floatAnim2.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -15],
+  });
+
+  const float3 = floatAnim3.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 20],
+  });
+
+  const rotate = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  const pulse = pulseAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.2, 0.5],
+  });
+
   return (
     <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      
+      {/* Animated Background Elements */}
+      <Animated.View style={[styles.bgCircle1, { transform: [{ translateY: float1 }, { rotate }] }]} />
+      <Animated.View style={[styles.bgCircle2, { transform: [{ translateY: float2 }, { scale: pulse }] }]} />
+      <Animated.View style={[styles.bgCircle3, { transform: [{ translateY: float3 }, { rotate }] }]} />
+      
+      {/* Animated Particles */}
+      {particleAnims.map((anim, index) => {
+        const particleX = anim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [index * 40, width + index * 40],
+        });
+        const particleY = anim.interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [height * 0.3, height * 0.4, height * 0.3],
+        });
+        const particleScale = anim.interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [0.2, 0.6, 0.2],
+        });
+        
+        return (
+          <Animated.View
+            key={index}
+            style={[
+              styles.particle,
+              {
+                transform: [
+                  { translateX: particleX },
+                  { translateY: particleY },
+                  { scale: particleScale },
+                ],
+                opacity: anim.interpolate({
+                  inputRange: [0, 0.5, 1],
+                  outputRange: [0, 0.2, 0],
+                }),
+              },
+            ]}
+          />
+        );
+      })}
+
+      <LinearGradient
+        colors={['rgba(46, 125, 94, 0.05)', 'rgba(27, 77, 62, 0.02)']}
+        style={StyleSheet.absoluteFill}
+      />
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
       >
         {/* Header with Gradient */}
-        <LinearGradient
-          colors={['#1B4D3E', '#0F2F26']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <View style={styles.headerContent}>
-            <View style={styles.topActions}>
-              <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
-                <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.iconButton}>
-                <Ionicons name="ellipsis-horizontal-circle" size={24} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.spaceTitle}>{name || "Space Details"}</Text>
-
-            <View style={styles.tagContainer}>
-              <View style={styles.tag}>
-                <Ionicons name="leaf-outline" size={14} color="#E7F0E9" />
-                <Text style={styles.tagText}>
-                  Home Space • {plants.length} {plants.length === 1 ? 'plant' : 'plants'}
-                </Text>
+        <Animated.View style={{ transform: [{ translateY: headerFloat }] }}>
+          <LinearGradient
+            colors={['#1B4D3E', '#0F2F26']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.headerGradient}
+          >
+            <View style={styles.headerContent}>
+              <View style={styles.topActions}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
+                  <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.iconButton}>
+                  <Ionicons name="ellipsis-horizontal-circle" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
               </View>
-              <View style={styles.tag}>
-                <Ionicons name="sunny-outline" size={14} color="#E7F0E9" />
-                <Text style={styles.tagText}>Full sun</Text>
+
+              <Text style={styles.spaceTitle}>{name || "Space Details"}</Text>
+
+              <View style={styles.tagContainer}>
+                <View style={styles.tag}>
+                  <Ionicons name="leaf-outline" size={14} color="#E7F0E9" />
+                  <Text style={styles.tagText}>
+                    Home Space • {plants.length} {plants.length === 1 ? 'plant' : 'plants'}
+                  </Text>
+                </View>
+                <View style={styles.tag}>
+                  <Ionicons name="sunny-outline" size={14} color="#E7F0E9" />
+                  <Text style={styles.tagText}>Full sun</Text>
+                </View>
               </View>
             </View>
-          </View>
-        </LinearGradient>
+          </LinearGradient>
+        </Animated.View>
 
         <View style={styles.content}>
           <View style={styles.sectionHeader}>
@@ -300,7 +540,7 @@ export default function SpaceDetail() {
 
           {/* Layout Toggle & Search */}
           <View style={styles.controlsRow}>
-            <View style={styles.pillContainer}>
+            <Animated.View style={[styles.pillContainer, { opacity: fadeAnim }]}>
               <TouchableOpacity
                 style={[styles.pill, layout === 'Compact' && styles.activePill]}
                 onPress={() => setLayout('Compact')}
@@ -327,9 +567,17 @@ export default function SpaceDetail() {
                   Detailed
                 </Text>
               </TouchableOpacity>
-            </View>
+            </Animated.View>
 
-            <View style={styles.searchContainer}>
+            <Animated.View 
+              style={[
+                styles.searchContainer,
+                {
+                  transform: [{ scale: searchScale }],
+                  opacity: fadeAnim,
+                }
+              ]}
+            >
               <Ionicons name="search-outline" size={20} color="#94A3B8" />
               <TextInput
                 placeholder="Search plants"
@@ -337,18 +585,34 @@ export default function SpaceDetail() {
                 style={styles.searchInput}
                 value={search}
                 onChangeText={setSearch}
+                onFocus={() => {
+                  Animated.spring(searchScale, {
+                    toValue: 1.02,
+                    tension: 40,
+                    friction: 7,
+                    useNativeDriver: true,
+                  }).start();
+                }}
+                onBlur={() => {
+                  Animated.spring(searchScale, {
+                    toValue: 1,
+                    tension: 40,
+                    friction: 7,
+                    useNativeDriver: true,
+                  }).start();
+                }}
               />
               {search !== '' && (
                 <TouchableOpacity onPress={() => setSearch('')}>
                   <Ionicons name="close-circle" size={20} color="#94A3B8" />
                 </TouchableOpacity>
               )}
-            </View>
+            </Animated.View>
           </View>
 
           {/* Plant Cards */}
           {filteredPlants.length === 0 ? (
-            <View style={styles.emptyState}>
+            <Animated.View style={[styles.emptyState, { opacity: fadeAnim }]}>
               <View style={styles.emptyIconContainer}>
                 <Ionicons name="leaf-outline" size={48} color="#2E7D5E" />
               </View>
@@ -356,128 +620,214 @@ export default function SpaceDetail() {
               <Text style={styles.emptyText}>
                 {search ? 'Try a different search term' : 'Add your first plant to this space'}
               </Text>
-            </View>
+            </Animated.View>
           ) : (
-            filteredPlants.map((plant) => (
-              <Link key={plant.id} href={{ pathname: "/plant/[id]", params: { id: plant.id } }} asChild>
-                <TouchableOpacity activeOpacity={0.7}>
-                  <LinearGradient
-                    colors={['#FFFFFF', '#F8FAFC']}
-                    style={styles.plantCard}
-                  >
-                    <View style={styles.plantCardContent}>
-                      <View style={styles.imagePlaceholder}>
-                        <MaterialCommunityIcons name="cactus" size={40} color="#2E7D5E" />
-                      </View>
-
-                      <View style={styles.plantDetails}>
-                        <View style={styles.plantHeaderRow}>
-                          <Text style={styles.plantName}>{plant.name}</Text>
-                          <TouchableOpacity
-                            style={styles.waterButton}
-                            onPress={(e) => {
-                              e.stopPropagation();
-                              handleWaterPlant(plant); // 👈 NOW WORKS!
-                            }}
-                          >
-                            <LinearGradient
-                              colors={['#4A90E2', '#357ABD']}
-                              style={styles.waterButtonGradient}
-                            >
-                              <Ionicons name="water" size={18} color="#FFFFFF" />
-                            </LinearGradient>
-                          </TouchableOpacity>
+            filteredPlants.map((plant, index) => (
+              <Animated.View
+                key={plant.id}
+                style={{
+                  opacity: fadeAnim,
+                  transform: [{
+                    translateY: slideAnim.interpolate({
+                      inputRange: [0, 50],
+                      outputRange: [index * 10, 50],
+                    }),
+                  }],
+                }}
+              >
+                <Link href={{ pathname: "/plant/[id]", params: { id: plant.id } }} asChild>
+                  <TouchableOpacity activeOpacity={0.7}>
+                    <LinearGradient
+                      colors={['#FFFFFF', '#F8FAFC']}
+                      style={styles.plantCard}
+                    >
+                      <View style={styles.plantCardContent}>
+                        <View style={styles.imagePlaceholder}>
+                          <MaterialCommunityIcons name="cactus" size={40} color="#2E7D5E" />
                         </View>
 
-                        {/* Tasks Section */}
-                        {layout === 'Compact' ? (
-                          <View style={styles.iconRow}>
-                            {plant.tasks && plant.tasks.length > 0 ? (
-                              plant.tasks.map((task) => (
-                                <View key={`${plant.id}-${task}`}>
-                                  {getTaskIcon(task, 16, "#2E7D5E")}
-                                </View>
-                              ))
-                            ) : (
-                              <>
-                                <Ionicons name="water" size={16} color="#2D4B2D" style={styles.miniIcon} />
-                                <MaterialCommunityIcons name="food-apple" size={16} color="#2D4B2D" style={styles.miniIcon} />
-                                <Ionicons name="cloud" size={16} color="#2D4B2D" style={styles.miniIcon} />
-                                <Ionicons name="refresh" size={16} color="#2D4B2D" style={styles.miniIcon} />
-                              </>
-                            )}
+                        <View style={styles.plantDetails}>
+                          <View style={styles.plantHeaderRow}>
+                            <Text style={styles.plantName}>{plant.name}</Text>
+                            <TouchableOpacity
+                              style={styles.waterButton}
+                              onPress={(e) => {
+                                e.stopPropagation();
+                                handleWaterPlant(plant);
+                              }}
+                            >
+                              <LinearGradient
+                                colors={['#4A90E2', '#357ABD']}
+                                style={styles.waterButtonGradient}
+                              >
+                                <Ionicons name="water" size={18} color="#FFFFFF" />
+                              </LinearGradient>
+                            </TouchableOpacity>
                           </View>
-                        ) : (
-                          <View style={styles.logContainer}>
-                            {plant.tasks && plant.tasks.length > 0 ? (
-                              plant.tasks.map((task) => (
-                                getTaskLogItem(task, plant)
-                              ))
-                            ) : (
-                              <>
-                                <View style={styles.logRow} key={`${plant.id}-water-default`}>
-                                  <Ionicons name="water" size={14} color="#1A3C1A" />
-                                  <Text style={styles.logLabel}>
-                                    Water: <Text style={styles.logStatus}>{formatDate(plant.lastWatered)}</Text>
-                                  </Text>
-                                </View>
-                                <View style={styles.logRow} key={`${plant.id}-feed-default`}>
-                                  <MaterialCommunityIcons name="food-apple" size={14} color="#1A3C1A" />
-                                  <Text style={styles.logLabel}>
-                                    Feed: <Text style={styles.logStatus}>{formatDate(plant.lastFeed)}</Text>
-                                  </Text>
-                                </View>
-                                <View style={styles.logRow} key={`${plant.id}-mist-default`}>
-                                  <Ionicons name="cloud" size={14} color="#1A3C1A" />
-                                  <Text style={styles.logLabel}>
-                                    Mist: <Text style={styles.logStatus}>{formatDate(plant.lastMist)}</Text>
-                                  </Text>
-                                </View>
-                              </>
-                            )}
-                          </View>
-                        )}
+
+                          {/* Tasks Section */}
+                          {layout === 'Compact' ? (
+                            <View style={styles.iconRow}>
+                              {plant.tasks && plant.tasks.length > 0 ? (
+                                plant.tasks.map((task) => (
+                                  <View key={`${plant.id}-${task}`} style={styles.taskIconWrapper}>
+                                    {getTaskIcon(task, 16, "#2E7D5E")}
+                                  </View>
+                                ))
+                              ) : (
+                                <>
+                                  <View style={styles.taskIconWrapper}>
+                                    <Ionicons name="water" size={16} color="#2D4B2D" />
+                                  </View>
+                                  <View style={styles.taskIconWrapper}>
+                                    <MaterialCommunityIcons name="food-apple" size={16} color="#2D4B2D" />
+                                  </View>
+                                  <View style={styles.taskIconWrapper}>
+                                    <Ionicons name="cloud" size={16} color="#2D4B2D" />
+                                  </View>
+                                </>
+                              )}
+                            </View>
+                          ) : (
+                            <View style={styles.logContainer}>
+                              {plant.tasks && plant.tasks.length > 0 ? (
+                                plant.tasks.map((task) => (
+                                  getTaskLogItem(task, plant)
+                                ))
+                              ) : (
+                                <>
+                                  <View style={styles.logRow}>
+                                    <Ionicons name="water" size={14} color="#1A3C1A" />
+                                    <Text style={styles.logLabel}>
+                                      Water: <Text style={styles.logStatus}>{formatDate(plant.lastWatered)}</Text>
+                                    </Text>
+                                  </View>
+                                  <View style={styles.logRow}>
+                                    <MaterialCommunityIcons name="food-apple" size={14} color="#1A3C1A" />
+                                    <Text style={styles.logLabel}>
+                                      Feed: <Text style={styles.logStatus}>{formatDate(plant.lastFeed)}</Text>
+                                    </Text>
+                                  </View>
+                                  <View style={styles.logRow}>
+                                    <Ionicons name="cloud" size={14} color="#1A3C1A" />
+                                    <Text style={styles.logLabel}>
+                                      Mist: <Text style={styles.logStatus}>{formatDate(plant.lastMist)}</Text>
+                                    </Text>
+                                  </View>
+                                </>
+                              )}
+                            </View>
+                          )}
+                        </View>
                       </View>
-                    </View>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </Link>
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </Link>
+              </Animated.View>
             ))
           )}
         </View>
       </ScrollView>
 
       {/* Floating Action Button */}
-      <TouchableOpacity
-        style={[styles.fab, { bottom: insets.bottom + 20 }]}
-        onPress={() =>
-          router.push({
-            pathname: '/add-plant',
-            params: { spaceId: id },
-          })
-        }
-        activeOpacity={0.8}
+      <Animated.View
+        style={[
+          styles.fab,
+          {
+            bottom: insets.bottom + 20,
+            transform: [
+              {
+                scale: fabAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 1],
+                }),
+              },
+            ],
+            opacity: fabAnim,
+          },
+        ]}
       >
-        <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.fabGradient}>
-          <Ionicons name="add" size={32} color="#FFFFFF" />
-        </LinearGradient>
-      </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() =>
+            router.push({
+              pathname: '/add-plant',
+              params: { spaceId: id },
+            })
+          }
+          activeOpacity={0.8}
+        >
+          <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.fabGradient}>
+            <Ionicons name="add" size={32} color="#FFFFFF" />
+          </LinearGradient>
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F7FA' },
-  scrollContent: { paddingBottom: 20 },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#a2c9abff' 
+  },
+  // Background elements
+  bgCircle1: {
+    position: 'absolute',
+    width: 250,
+    height: 250,
+    borderRadius: 125,
+    backgroundColor: 'rgba(46, 125, 94, 0.03)',
+    top: -100,
+    right: -100,
+  },
+  bgCircle2: {
+    position: 'absolute',
+    width: 350,
+    height: 350,
+    borderRadius: 175,
+    backgroundColor: 'rgba(27, 77, 62, 0.03)',
+    bottom: -150,
+    left: -150,
+  },
+  bgCircle3: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(165, 214, 167, 0.05)',
+    top: '20%',
+    right: -50,
+  },
+  particle: {
+    position: 'absolute',
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: '#2E7D5E',
+    opacity: 0.2,
+  },
+  scrollContent: { 
+    paddingBottom: 20 
+  },
   headerGradient: {
     paddingTop: 60,
     paddingBottom: 30,
     paddingHorizontal: 24,
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
   },
-  headerContent: { gap: 16 },
-  topActions: { flexDirection: 'row', justifyContent: 'space-between' },
+  headerContent: { 
+    gap: 16 
+  },
+  topActions: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between' 
+  },
   iconButton: {
     width: 40,
     height: 40,
@@ -485,6 +835,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   spaceTitle: {
     fontSize: 32,
@@ -505,6 +857,8 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
     gap: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   tagText: {
     fontSize: 13,
@@ -544,6 +898,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
     alignSelf: 'flex-start',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   pill: {
     flexDirection: 'row',
@@ -573,6 +932,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   searchInput: {
     flex: 1,
@@ -593,6 +957,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
+    shadowColor: '#2E7D5E',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
   },
   emptyTitle: {
     fontSize: 20,
@@ -609,10 +978,12 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 20,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
   },
   plantCardContent: {
     flexDirection: 'row',
@@ -626,6 +997,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
+    shadowColor: '#2E7D5E',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   plantDetails: {
     flex: 1,
@@ -647,10 +1023,10 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     overflow: 'hidden',
     shadowColor: '#4A90E2',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
   waterButtonGradient: {
     width: 36,
@@ -662,19 +1038,32 @@ const styles = StyleSheet.create({
   iconRow: {
     flexDirection: 'row',
     marginTop: 8,
-    gap: 12,
+    gap: 8,
+  },
+  taskIconWrapper: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   miniIcon: {
     opacity: 0.8,
   },
   logContainer: {
     marginTop: 8,
-    gap: 4,
+    gap: 6,
   },
   logRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
   },
   logLabel: {
     fontSize: 13,

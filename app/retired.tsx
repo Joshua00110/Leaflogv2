@@ -128,7 +128,7 @@ export default function RetiredPlantsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F7FA' },
+  container: { flex: 1, backgroundColor: '#a2c9abff' },
   headerGradient: {
     paddingTop: 60,
     paddingBottom: 30,

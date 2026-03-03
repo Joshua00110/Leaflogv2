@@ -259,7 +259,7 @@ export default function SettingsScreen() {
   });
 
   return (
-    <LinearGradient colors={['#F5F7FA', '#E8F0E8']} style={styles.container}>
+    <LinearGradient colors={['#a2c9abff', '#E8F0E8']} style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
       {/* Decorative background elements */}
@@ -442,7 +442,7 @@ export default function SettingsScreen() {
             transform: [{ translateX: slideAnim }]
           }}>
             <Text style={styles.sectionHeader}>DANGER ZONE</Text>
-            <View style={[styles.card, { backgroundColor: '#FFF5F5' }]}>
+            <View style={[styles.card, { backgroundColor: '#fcfff5ff' }]}>
               <SettingItem
                 icon="trash-outline"
                 title="Delete Account"
