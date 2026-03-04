@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { 
   View, Text, StyleSheet, SafeAreaView, ScrollView, 
   TouchableOpacity, TextInput, Modal, Pressable, Alert, 
-  Animated, Dimensions, Easing, StatusBar, Platform
+  Animated, Dimensions, Easing, StatusBar, Platform, FlatList
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from '../../firebaseConfig'; 
@@ -62,6 +62,10 @@ export default function PlantsScreen() {
 
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedPlant, setSelectedPlant] = useState<Plant | null>(null);
+  
+  // FAB Menu state
+  const [fabMenuVisible, setFabMenuVisible] = useState(false);
+  const [spaceSelectVisible, setSpaceSelectVisible] = useState(false);
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -69,6 +73,7 @@ export default function PlantsScreen() {
   const searchScale = useRef(new Animated.Value(1)).current;
   const fabAnim = useRef(new Animated.Value(0)).current;
   const tabIndicatorAnim = useRef(new Animated.Value(0)).current;
+  const fabMenuAnim = useRef(new Animated.Value(0)).current;
   
   // Background animation values
   const floatAnim1 = useRef(new Animated.Value(0)).current;
@@ -302,6 +307,25 @@ export default function PlantsScreen() {
       useNativeDriver: true,
     }).start();
   }, [activeTab]);
+
+  // Animate FAB menu
+  useEffect(() => {
+    if (fabMenuVisible) {
+      Animated.spring(fabMenuAnim, {
+        toValue: 1,
+        tension: 40,
+        friction: 5,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.spring(fabMenuAnim, {
+        toValue: 0,
+        tension: 40,
+        friction: 5,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [fabMenuVisible]);
 
   const scheduleWateringReminder = async (plantId: string, plantName: string, dueDate: Date) => {
     const baseId = `plant-water-${plantId}`;
@@ -602,6 +626,52 @@ export default function PlantsScreen() {
     inputRange: [0, 1],
     outputRange: ['-1deg', '3deg'],
   });
+
+  // FAB Menu animation interpolations
+  const fabMenuScale = fabMenuAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  });
+
+  const fabMenuTranslate = fabMenuAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [20, 0],
+  });
+
+  const fabMenuOpacity = fabMenuAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: [0, 0.5, 1],
+  });
+
+  const fabRotate = fabMenuAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '45deg'],
+  });
+
+  // Handle add plant with space selection
+  const handleAddPlantWithSpace = () => {
+    setFabMenuVisible(false);
+    if (spaces.length === 0) {
+      Alert.alert(
+        "No Spaces Found",
+        "You need to create a space first before adding plants.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Create Space", onPress: () => router.push('/add-space') }
+        ]
+      );
+    } else {
+      setSpaceSelectVisible(true);
+    }
+  };
+
+  const handleSelectSpace = (spaceId: string, spaceName: string) => {
+    setSpaceSelectVisible(false);
+    router.push({ 
+      pathname: '/add-plant', 
+      params: { spaceId: spaceId, spaceName: spaceName } 
+    });
+  };
 
   return (
     <LinearGradient 
@@ -962,6 +1032,43 @@ export default function PlantsScreen() {
           </LinearGradient>
         </Animated.ScrollView>
 
+        {/* FAB Menu */}
+        <Animated.View
+          style={[
+            styles.fabMenuContainer,
+            {
+              opacity: fabMenuOpacity,
+              transform: [{ scale: fabMenuScale }, { translateY: fabMenuTranslate }],
+            },
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.fabMenuItem}
+            onPress={handleAddPlantWithSpace}
+            activeOpacity={0.7}
+          >
+            <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.fabMenuItemGradient}>
+              <Ionicons name="leaf" size={22} color="#FFFFFF" />
+            </LinearGradient>
+            <Text style={styles.fabMenuItemText}>Add Plant to Space</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.fabMenuItem}
+            onPress={() => {
+              setFabMenuVisible(false);
+              router.push('/add-space');
+            }}
+            activeOpacity={0.7}
+          >
+            <LinearGradient colors={['#8B5CF6', '#6D28D9']} style={styles.fabMenuItemGradient}>
+              <Ionicons name="grid-outline" size={22} color="#FFFFFF" />
+            </LinearGradient>
+            <Text style={styles.fabMenuItemText}>Create New Space</Text>
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* Main FAB */}
         <Animated.View
           style={[
             styles.fab,
@@ -973,13 +1080,14 @@ export default function PlantsScreen() {
                     outputRange: [0, 1],
                   }),
                 },
+                { rotate: fabRotate },
               ],
               opacity: fabAnim,
             },
           ]}
         >
           <TouchableOpacity 
-            onPress={() => router.push('/add-plant')}
+            onPress={() => setFabMenuVisible(!fabMenuVisible)}
             activeOpacity={0.8}
           >
             <LinearGradient colors={['#2E7D5E', '#1B4D3E']} style={styles.fabGradient}>
@@ -987,6 +1095,53 @@ export default function PlantsScreen() {
             </LinearGradient>
           </TouchableOpacity>
         </Animated.View>
+
+        {/* Space Selection Modal */}
+        <Modal visible={spaceSelectVisible} transparent animationType="slide">
+          <Pressable style={styles.modalOverlay} onPress={() => setSpaceSelectVisible(false)}>
+            <BlurView intensity={20} style={styles.blurView}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHandle} />
+                <Text style={styles.modalTitle}>Select a Space</Text>
+                <Text style={styles.modalSubtitle}>Choose where to add your new plant</Text>
+
+                <FlatList
+                  data={spaces}
+                  keyExtractor={(item) => item.id}
+                  style={styles.spacesList}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.spaceItem}
+                      onPress={() => handleSelectSpace(item.id, item.name)}
+                    >
+                      <View style={[styles.spaceIcon, { backgroundColor: '#E8F5E9' }]}>
+                        <Ionicons name="leaf" size={24} color="#2E7D5E" />
+                      </View>
+                      <View style={styles.spaceItemInfo}>
+                        <Text style={styles.spaceItemName}>{item.name}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
+                    </TouchableOpacity>
+                  )}
+                  ListEmptyComponent={
+                    <View style={styles.emptySpaces}>
+                      <Ionicons name="folder-open-outline" size={48} color="#94A3B8" />
+                      <Text style={styles.emptySpacesText}>No spaces available</Text>
+                      <Text style={styles.emptySpacesSubtext}>Create a space first</Text>
+                    </View>
+                  }
+                />
+
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => setSpaceSelectVisible(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </BlurView>
+          </Pressable>
+        </Modal>
       </SafeAreaView>
 
       <Modal visible={menuVisible} transparent animationType="slide">
@@ -1470,7 +1625,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', 
     alignItems: 'center', 
     marginHorizontal: 24, 
-    marginTop: 20, 
+    marginTop: 50, 
     marginBottom: 20, 
     padding: 16, 
     borderRadius: 16, 
@@ -1518,6 +1673,100 @@ const styles = StyleSheet.create({
     justifyContent: 'center', 
     alignItems: 'center' 
   },
+  // FAB Menu styles
+  fabMenuContainer: {
+    position: 'absolute',
+    bottom: 170,
+    right: 25,
+    alignItems: 'flex-end',
+    zIndex: 998,
+  },
+  fabMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 30,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  fabMenuItemGradient: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  fabMenuItemText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginRight: 8,
+  },
+  // Space Selection Modal styles
+  spacesList: {
+    maxHeight: 300,
+    marginBottom: 16,
+  },
+  spaceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  spaceIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  spaceItemInfo: {
+    flex: 1,
+  },
+  spaceItemName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+  },
+  emptySpaces: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptySpacesText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginTop: 12,
+  },
+  emptySpacesSubtext: {
+    fontSize: 14,
+    color: '#64748B',
+    marginTop: 4,
+  },
+  cancelButton: {
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748B',
+  },
   modalOverlay: { 
     flex: 1 
   },
@@ -1545,6 +1794,19 @@ const styles = StyleSheet.create({
     alignSelf: 'center', 
     marginBottom: 24 
   },
+  modalTitle: { 
+    fontSize: 20, 
+    fontWeight: '700', 
+    color: '#1E293B', 
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  modalSubtitle: { 
+    fontSize: 14, 
+    color: '#64748B', 
+    marginBottom: 20,
+    textAlign: 'center',
+  },
   modalHeader: { 
     flexDirection: 'row', 
     alignItems: 'center', 
@@ -1562,16 +1824,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 2,
-  },
-  modalTitle: { 
-    fontSize: 20, 
-    fontWeight: '700', 
-    color: '#1E293B', 
-    marginBottom: 2 
-  },
-  modalSubtitle: { 
-    fontSize: 14, 
-    color: '#64748B' 
   },
   modalOption: { 
     flexDirection: 'row', 

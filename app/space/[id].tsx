@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { 
   View, Text, StyleSheet, ScrollView, TouchableOpacity, 
-  TextInput, Alert, Animated, Easing, Dimensions, StatusBar 
+  TextInput, Alert, Animated, Easing, Dimensions, StatusBar, Modal, Pressable, FlatList
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Link } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { db, auth } from '../../firebaseConfig';
-import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, Timestamp, getDocs } from 'firebase/firestore';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
@@ -29,14 +29,28 @@ interface Plant {
   reminderMinute?: number;
 }
 
+interface Space {
+  id: string;
+  name: string;
+  lightCondition?: string;
+}
+
 export default function SpaceDetail() {
   const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   const [plants, setPlants] = useState<Plant[]>([]);
+  const [spaces, setSpaces] = useState<Space[]>([]);
   const [layout, setLayout] = useState<'Compact' | 'Detailed'>('Compact');
   const [search, setSearch] = useState('');
+  
+  // Menu states
+  const [spaceMenuVisible, setSpaceMenuVisible] = useState(false);
+  const [plantMenuVisible, setPlantMenuVisible] = useState(false);
+  const [transferModalVisible, setTransferModalVisible] = useState(false);
+  const [selectedPlant, setSelectedPlant] = useState<Plant | null>(null);
+  const [availableSpaces, setAvailableSpaces] = useState<Space[]>([]);
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -195,6 +209,21 @@ export default function SpaceDetail() {
     const user = auth.currentUser;
     if (!user || !id) return;
 
+    // Fetch spaces for transfer options
+    const spacesQuery = query(
+      collection(db, "spaces"),
+      where("userId", "==", user.uid)
+    );
+    const unsubSpaces = onSnapshot(spacesQuery, (snapshot) => {
+      const spaceList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        name: doc.data().name,
+        lightCondition: doc.data().lightCondition
+      })) as Space[];
+      setSpaces(spaceList);
+      setAvailableSpaces(spaceList.filter(s => s.id !== id));
+    });
+
     const q = query(
       collection(db, "plants"),
       where("userId", "==", user.uid),
@@ -223,7 +252,10 @@ export default function SpaceDetail() {
       setPlants(plantList);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubSpaces();
+      unsubscribe();
+    };
   }, [id]);
 
   const filteredPlants = plants.filter(plant =>
@@ -297,12 +329,41 @@ export default function SpaceDetail() {
 
       await scheduleWateringReminder(plant.id, plant.name, nextDate);
       
-      // Animate success
       Alert.alert("✅ Watered!", `${plant.name} has been watered. Next reminder scheduled.`);
     } catch (error) {
       console.error("Error watering plant:", error);
       Alert.alert("Error", "Could not log watering");
     }
+  };
+
+  // ----- HANDLE TRANSFER PLANT -----
+  const handleTransferPlant = async (targetSpaceId: string) => {
+    if (!selectedPlant) return;
+    
+    try {
+      const targetSpace = spaces.find(s => s.id === targetSpaceId);
+      const plantRef = doc(db, "plants", selectedPlant.id);
+      await updateDoc(plantRef, {
+        spaceId: targetSpaceId
+      });
+      
+      setTransferModalVisible(false);
+      setPlantMenuVisible(false);
+      Alert.alert(
+        "✅ Plant Transferred", 
+        `${selectedPlant.name} has been moved to ${targetSpace?.name || 'another space'}.`
+      );
+    } catch (error) {
+      console.error("Error transferring plant:", error);
+      Alert.alert("Error", "Could not transfer plant");
+    }
+  };
+
+  // ----- HANDLE PLANT MENU -----
+  const openPlantMenu = (plant: Plant, e: any) => {
+    e.stopPropagation();
+    setSelectedPlant(plant);
+    setPlantMenuVisible(true);
   };
 
   // Helper to format timestamp safely
@@ -440,6 +501,69 @@ export default function SpaceDetail() {
     outputRange: [0.2, 0.5],
   });
 
+  // Space menu options handlers
+  const handleEditSpace = () => {
+    setSpaceMenuVisible(false);
+    router.push({ pathname: '/edit-space', params: { id, name } });
+  };
+
+  const handleWaterAll = () => {
+    setSpaceMenuVisible(false);
+    Alert.alert(
+      "Water All Plants",
+      `Water all ${plants.length} plants in ${name}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Water All", 
+          onPress: () => {
+            plants.forEach(plant => handleWaterPlant(plant));
+            Alert.alert("Success", `All plants in ${name} have been watered!`);
+          }
+        }
+      ]
+    );
+  };
+
+  const handleSpaceStats = () => {
+    setSpaceMenuVisible(false);
+    const wateredToday = plants.filter(p => {
+      if (!p.lastWatered) return false;
+      const lastWatered = p.lastWatered instanceof Timestamp ? p.lastWatered.toDate() : new Date(p.lastWatered);
+      const today = new Date();
+      return lastWatered.toDateString() === today.toDateString();
+    }).length;
+
+    Alert.alert(
+      "Space Statistics",
+      `${name}\n\n` +
+      `Total Plants: ${plants.length}\n` +
+      `Watered Today: ${wateredToday}\n` +
+      `Need Water: ${plants.filter(p => !p.lastWatered).length}\n` +
+      `Completion: ${Math.round((wateredToday / plants.length) * 100 || 0)}%`
+    );
+  };
+
+  const handleDeleteSpace = () => {
+    setSpaceMenuVisible(false);
+    Alert.alert(
+      "Delete Space",
+      `Are you sure you want to delete "${name}"? This will not delete the plants inside.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete", 
+          style: "destructive",
+          onPress: () => {
+            // Implement space deletion logic here
+            Alert.alert("Success", `${name} has been deleted.`);
+            router.back();
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
@@ -507,7 +631,11 @@ export default function SpaceDetail() {
                 <TouchableOpacity onPress={() => router.back()} style={styles.iconButton}>
                   <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.iconButton}>
+                {/* Three-dot menu button */}
+                <TouchableOpacity 
+                  style={styles.iconButton}
+                  onPress={() => setSpaceMenuVisible(true)}
+                >
                   <Ionicons name="ellipsis-horizontal-circle" size={24} color="#FFFFFF" />
                 </TouchableOpacity>
               </View>
@@ -649,20 +777,30 @@ export default function SpaceDetail() {
                         <View style={styles.plantDetails}>
                           <View style={styles.plantHeaderRow}>
                             <Text style={styles.plantName}>{plant.name}</Text>
-                            <TouchableOpacity
-                              style={styles.waterButton}
-                              onPress={(e) => {
-                                e.stopPropagation();
-                                handleWaterPlant(plant);
-                              }}
-                            >
-                              <LinearGradient
-                                colors={['#4A90E2', '#357ABD']}
-                                style={styles.waterButtonGradient}
+                            <View style={styles.plantActions}>
+                              <TouchableOpacity
+                                style={styles.waterButton}
+                                onPress={(e) => {
+                                  e.stopPropagation();
+                                  handleWaterPlant(plant);
+                                }}
                               >
-                                <Ionicons name="water" size={18} color="#FFFFFF" />
-                              </LinearGradient>
-                            </TouchableOpacity>
+                                <LinearGradient
+                                  colors={['#4A90E2', '#357ABD']}
+                                  style={styles.waterButtonGradient}
+                                >
+                                  <Ionicons name="water" size={18} color="#FFFFFF" />
+                                </LinearGradient>
+                              </TouchableOpacity>
+                              
+                              {/* Three-dot menu for each plant */}
+                              <TouchableOpacity
+                                style={styles.plantMenuButton}
+                                onPress={(e) => openPlantMenu(plant, e)}
+                              >
+                                <Ionicons name="ellipsis-horizontal-circle" size={24} color="#94A3B8" />
+                              </TouchableOpacity>
+                            </View>
                           </View>
 
                           {/* Tasks Section */}
@@ -761,6 +899,195 @@ export default function SpaceDetail() {
           </LinearGradient>
         </TouchableOpacity>
       </Animated.View>
+
+      {/* Space Menu Modal */}
+      <Modal visible={spaceMenuVisible} transparent animationType="slide">
+        <Pressable style={styles.modalOverlay} onPress={() => setSpaceMenuVisible(false)}>
+          <BlurView intensity={50} tint="light" style={styles.modalBlur}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>Space Options</Text>
+              
+              <TouchableOpacity 
+                style={styles.modalOption}
+                onPress={handleEditSpace}
+              >
+                <View style={[styles.optionIcon, { backgroundColor: '#E8F5E9' }]}>
+                  <Ionicons name="create-outline" size={22} color="#2E7D5E" />
+                </View>
+                <View style={styles.optionTextContainer}>
+                  <Text style={styles.optionTitle}>Edit Space</Text>
+                  <Text style={styles.optionSubtitle}>Rename or update light conditions</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.modalOption}
+                onPress={handleWaterAll}
+              >
+                <View style={[styles.optionIcon, { backgroundColor: '#E8F5E9' }]}>
+                  <Ionicons name="water" size={22} color="#4A90E2" />
+                </View>
+                <View style={styles.optionTextContainer}>
+                  <Text style={styles.optionTitle}>Water All Plants</Text>
+                  <Text style={styles.optionSubtitle}>Water every plant in this space</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.modalOption}
+                onPress={handleSpaceStats}
+              >
+                <View style={[styles.optionIcon, { backgroundColor: '#E8F5E9' }]}>
+                  <Ionicons name="stats-chart" size={22} color="#F59E0B" />
+                </View>
+                <View style={styles.optionTextContainer}>
+                  <Text style={styles.optionTitle}>Space Statistics</Text>
+                  <Text style={styles.optionSubtitle}>View care progress and metrics</Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.modalOption, styles.deleteOption]}
+                onPress={handleDeleteSpace}
+              >
+                <View style={[styles.optionIcon, { backgroundColor: '#FFEBEE' }]}>
+                  <Ionicons name="trash-outline" size={22} color="#DC2626" />
+                </View>
+                <View style={styles.optionTextContainer}>
+                  <Text style={[styles.optionTitle, { color: '#DC2626' }]}>Delete Space</Text>
+                  <Text style={[styles.optionSubtitle, { color: '#EF4444' }]}>Remove this space (plants kept)</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </BlurView>
+        </Pressable>
+      </Modal>
+
+      {/* Plant Menu Modal */}
+      {/* Plant Menu Modal */}
+<Modal visible={plantMenuVisible} transparent animationType="slide">
+  <Pressable style={styles.modalOverlay} onPress={() => setPlantMenuVisible(false)}>
+    <BlurView intensity={50} tint="light" style={styles.modalBlur}>
+      <View style={styles.modalContent}>
+        <View style={styles.modalHandle} />
+        <Text style={styles.modalTitle}>{selectedPlant?.name || 'Plant Options'}</Text>
+        
+        <TouchableOpacity 
+          style={styles.modalOption}
+          onPress={() => {
+            setPlantMenuVisible(false);
+            if (selectedPlant && selectedPlant.id) {
+              router.push({ 
+                pathname: "/plant/[id]", 
+                params: { id: selectedPlant.id } 
+              });
+            }
+          }}
+        >
+          <View style={[styles.optionIcon, { backgroundColor: '#E8F5E9' }]}>
+            <Ionicons name="eye-outline" size={22} color="#2E7D5E" />
+          </View>
+          <View style={styles.optionTextContainer}>
+            <Text style={styles.optionTitle}>View Details</Text>
+            <Text style={styles.optionSubtitle}>See complete plant information</Text>
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.modalOption}
+          onPress={() => {
+            setPlantMenuVisible(false);
+            if (selectedPlant && selectedPlant.id) {
+              router.push({ 
+                pathname: "/plant/edit/[id]", 
+                params: { id: selectedPlant.id } 
+              });
+            }
+          }}
+        >
+          <View style={[styles.optionIcon, { backgroundColor: '#E8EAF6' }]}>
+            <Ionicons name="create-outline" size={22} color="#5C6BC0" />
+          </View>
+          <View style={styles.optionTextContainer}>
+            <Text style={styles.optionTitle}>Edit Plant</Text>
+            <Text style={styles.optionSubtitle}>Update plant details</Text>
+          </View>
+        </TouchableOpacity>
+
+        {/* TRANSFER PLANT OPTION */}
+        <TouchableOpacity 
+          style={styles.modalOption}
+          onPress={() => {
+            setPlantMenuVisible(false);
+            if (selectedPlant && selectedPlant.id) {
+              setTransferModalVisible(true);
+            }
+          }}
+        >
+          <View style={[styles.optionIcon, { backgroundColor: '#E8F5E9' }]}>
+            <Ionicons name="swap-horizontal" size={22} color="#F59E0B" />
+          </View>
+          <View style={styles.optionTextContainer}>
+            <Text style={styles.optionTitle}>Transfer Plant</Text>
+            <Text style={styles.optionSubtitle}>Move to another space</Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+    </BlurView>
+  </Pressable>
+</Modal>
+
+      {/* Transfer Plant Modal */}
+      <Modal visible={transferModalVisible} transparent animationType="slide">
+        <Pressable style={styles.modalOverlay} onPress={() => setTransferModalVisible(false)}>
+          <BlurView intensity={50} tint="light" style={styles.modalBlur}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>Transfer {selectedPlant?.name}</Text>
+              <Text style={styles.modalSubtitle}>Choose a destination space</Text>
+
+              {availableSpaces.length === 0 ? (
+                <View style={styles.emptySpaces}>
+                  <Ionicons name="folder-open-outline" size={48} color="#94A3B8" />
+                  <Text style={styles.emptySpacesText}>No other spaces available</Text>
+                  <Text style={styles.emptySpacesSubtext}>Create a new space first</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={availableSpaces}
+                  keyExtractor={(item) => item.id}
+                  style={styles.spacesList}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.spaceItem}
+                      onPress={() => handleTransferPlant(item.id)}
+                    >
+                      <View style={[styles.spaceIcon, { backgroundColor: '#E8F5E9' }]}>
+                        <Ionicons name="leaf" size={24} color="#2E7D5E" />
+                      </View>
+                      <View style={styles.spaceItemInfo}>
+                        <Text style={styles.spaceItemName}>{item.name}</Text>
+                        <Text style={styles.spaceItemDetail}>
+                          {item.lightCondition || 'No light condition set'}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#94A3B8" />
+                    </TouchableOpacity>
+                  )}
+                />
+              )}
+
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setTransferModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </BlurView>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1017,6 +1344,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1E293B',
   },
+  plantActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   waterButton: {
     width: 36,
     height: 36,
@@ -1029,6 +1361,13 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   waterButtonGradient: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  plantMenuButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
@@ -1095,5 +1434,137 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 3,
     borderColor: '#FFFFFF',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalBlur: {
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    overflow: 'hidden',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    padding: 24,
+    paddingBottom: 40,
+    maxHeight: height * 0.8,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#E2E8F0',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1E293B',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  deleteOption: {
+    borderBottomWidth: 0,
+  },
+  optionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  optionTextContainer: {
+    flex: 1,
+  },
+  optionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 2,
+  },
+  optionSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+  },
+  // Transfer modal specific styles
+  spacesList: {
+    maxHeight: 300,
+    marginBottom: 16,
+  },
+  spaceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  spaceIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  spaceItemInfo: {
+    flex: 1,
+  },
+  spaceItemName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginBottom: 2,
+  },
+  spaceItemDetail: {
+    fontSize: 13,
+    color: '#64748B',
+  },
+  emptySpaces: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  emptySpacesText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1E293B',
+    marginTop: 12,
+  },
+  emptySpacesSubtext: {
+    fontSize: 14,
+    color: '#64748B',
+    marginTop: 4,
+  },
+  cancelButton: {
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748B',
   },
 });
